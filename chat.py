@@ -1,14 +1,43 @@
 import openai
+import os
 
-# Set the OpenAI API key
-openai.api_key = open("openai_key.txt").read()
+# Set the OpenAI API key if the environment variable OPENAI_API_KEY exists, otherwise
+# load it from the file openai_key.private
 
-#model = "gpt-3.5-turbo"
-model = "gpt-4-0613"
+if "OPENAI_API_KEY" in os.environ:
+    openai.api_key = os.environ["OPENAI_API_KEY"]
+else:
+    openai.api_key = open("openai_key.private").read()
 
-# persona = "I am a highly intelligent question answering bot. If you ask me a question that is rooted in truth, I will give you the answer. If you ask me a question that is nonsense, trickery, or has no clear answer, I will respond with a nonsense response."
-# persona = "I am a skilled financial advisor who can help you with your financial planning. I can help you with your retirement planning, your investment planning, and your tax planning. I can also help you with your estate planning, your insurance planning, and your education planning. I can help you with your financial planning for your children, your grandchildren, and your great-grandchildren. I will answer all questions related to financial planning. If my answers include math, I will quietly check the math multiple times before replying ensuring the math is correct before answering"
-persona = "I am a skilled financial asset manager familiar with analysis and investing in equities, fixed income, alternative investments, and real estate. I am familiar with the use of derivatives and options to hedge risk and enhance returns. I am familiar with the use of leverage to enhance returns. I am familiar with the use of leverage to hedge risk. I am also an excellent mentor and when I use financial jargon, I will always provide a clear definition for the jargon terms at the end of my response"
+# Set the model to use  - see
+# https://beta.openai.com/docs/api-reference/create-completion for more options
+# on the model parameter
+
+model = "gpt-3.5-turbo"
+# model = "gpt-4"
+# model = "gpt-4-0613"
+
+# dictionary of persona strings
+personas = {
+    "financial manager": (
+        "I am a skilled financial manager familiar with analysis and investing in"
+        " equities, fixed income, alternative investments, and real estate. I am"
+        " familiar with the use of derivatives and options to hedge risk and enhance"
+        " returns. I am familiar with the use of leverage to enhance returns. I am"
+        " familiar with the use of leverage to hedge risk. I am also an excellent"
+        " mentor and when I use financial jargon, I will always provide a clear"
+        " definition for the jargon terms at the end of my response"
+    ),
+    "question answering bot": (
+        "I am a highly intelligent question answering bot. If you ask me a question"
+        " that isrooted in truth, I will give you the answer. If you ask me a question"
+        " that isnonsense, trickery, or has no clear answer, I will respond with a"
+        " nonsenseresponse."
+    ),
+}
+
+persona = personas["question answering bot"]
+
 messages = []
 messages.append({"role": "system", "content": persona})
 
