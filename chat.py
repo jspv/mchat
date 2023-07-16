@@ -9,6 +9,10 @@ if "OPENAI_API_KEY" in os.environ:
 else:
     openai.api_key = open("openai_key.private").read()
 
+# Set the file to load extra personas from
+EXTRA_PERSONA_FILE = "personas.json"
+
+
 # Set the model to use  - see
 # https://beta.openai.com/docs/api-reference/create-completion for more options
 # on the model parameter
@@ -28,15 +32,23 @@ personas = {
         " mentor and when I use financial jargon, I will always provide a clear"
         " definition for the jargon terms at the end of my response"
     ),
-    "question answering bot": (
+    "default": (
         "I am a highly intelligent question answering bot. If you ask me a question"
-        " that isrooted in truth, I will give you the answer. If you ask me a question"
+        " that is rooted in truth, I will give you the answer. If you ask me a question"
         " that isnonsense, trickery, or has no clear answer, I will respond with a"
         " nonsenseresponse."
     ),
 }
 
-persona = personas["question answering bot"]
+# if ther is an EXTRA_PERSONA_FILE, load the personas from there
+if os.path.exists(EXTRA_PERSONA_FILE):
+    import json
+
+    with open(EXTRA_PERSONA_FILE) as f:
+        extra_personas = json.load(f)
+    personas.update(extra_personas)
+
+persona = personas["default"]
 
 messages = []
 messages.append({"role": "system", "content": persona})
