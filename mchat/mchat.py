@@ -2,6 +2,8 @@ import os
 import asyncio
 import argparse
 
+from environs import Env
+
 from langchain.callbacks import get_openai_callback
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
@@ -90,9 +92,10 @@ class ChatApp(App):
         # current active widget for storing a conversation turn
         self.chatbox = None
 
-        if "OPENAI_API_KEY" not in os.environ:
-            # set the environment variable to the contents of the file
-            os.environ["OPENAI_API_KEY"] = open("openai_key.private").read().strip()
+        env = Env()
+        env.read_env()
+
+        env("OPENAI_API_KEY", default=None)
 
         # Initialize the language model
         self.llm_model_name = "gpt-3.5-turbo"
