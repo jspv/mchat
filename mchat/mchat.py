@@ -8,14 +8,24 @@ from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
 
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, TextLog, Label
-from textual import on
+from textual.widgets import Header, Footer, Input, TextLog, Label, Markdown, Static
+from textual.containers import VerticalScroll, ScrollableContainer
+from textual.reactive import Reactive
+from textual.css.query import NoMatches
+from textual import on, log, work
 from textual import events
+from textual.message import Message
 from textual.worker import Worker
 from rich.table import Table
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.align import Align
+
+from mchat.widgets.ChatTurn import ChatTurn
+from mchat.widgets.DebugPane import DebugPane
+
+from textual.containers import Vertical, Horizontal
+
 
 from typing import Any, Dict, List
 
@@ -40,66 +50,45 @@ from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
 EXTRA_PERSONA_FILE = "personas.json"
 
 
-class MyCustomAsyncHandler(AsyncCallbackHandler):
-    """Async callback handler that can be used to handle callbacks from langchain."""
-
-    async def on_llm_start(
-        self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
-    ) -> None:
-        """Run when chain starts running."""
-        print("zzzz....")
-        await asyncio.sleep(0.3)
-        # class_name = serialized["name"]
-        print("Hi! I just woke up. Your llm is starting")
-
-    async def on_llm_new_token(self, token: str, **kwargs) -> None:
-        print(f"async: {token}")
-
-    async def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        """Run when chain ends running."""
-        print("zzzz....")
-        await asyncio.sleep(0.3)
-        print("Hi! I just woke up. Your llm is ending")
-
-
 class StreamTokenCallback(AsyncCallbackHandler):
-    """Async callback handler that can will push tokens to the.
+    """Callback handler that posts new tokens to the chatbox."""
 
-    ui_update_callback: Callable - a callback that will be called with the token
-    """
-
-    def __init__(self, ui_update_callback, *args, **kwargs):
+    def __init__(self, app, *args, **kwargs):
+        self.app = app
         super().__init__(*args, **kwargs)
-        self.ui_update_callback = ui_update_callback
 
+    # method is called by the Langchain callback system when a new token
+    # is available
     async def on_llm_new_token(self, token: str, **kwargs) -> None:
-        self.ui_update_callback.write(token)
-        self.ui_update_callback.write(
-            "blah",
+        self.app.post_message(
+            self.app.AddToChatMessage(role="assistant", message=token)
         )
-
-        print(f"Sending update: {token}")
-
-
-class GetTokenSyncHandler(BaseCallbackHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
-        raise NotImplementedError("Sync")
-
-    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        raise NotImplementedError("end - via sync")
+        await asyncio.sleep(0.1)
 
 
 class ChatApp(App):
-    BINDINGS = [("d", "toggle_dark", "Toggle dark mode")]
+    CSS_PATH = "mchat.css"
+    BINDINGS = [
+        ("ctrl+r", "toggle_dark", "Toggle dark mode"),
+        ("ctrl+g", "toggle_debug", "Toggle debug mode"),
+    ]
+
+    # Toggles debug pane on/off (default is off)
+    _show_debug = Reactive(False)
+
+    # placeholder for the current question
+    _current_question = Reactive("")
 
     def __init__(self, tui: bool = True, *args, **kwargs):
+        # placeholder for the current question
+
         super().__init__(*args, **kwargs)
 
         # parse arguments
         self.parse_args_and_initialize()
+
+        # current active widget for storing a conversation turn
+        self.chatbox = None
 
         if "OPENAI_API_KEY" not in os.environ:
             # set the environment variable to the contents of the file
@@ -107,6 +96,7 @@ class ChatApp(App):
 
         # Initialize the language model
         self.llm_model_name = "gpt-3.5-turbo"
+        # self.llm_model_name = "gpt-4"
         self.llm_temperature = 0.7
         if self.tui is True:
             self.llm = ChatOpenAI(
@@ -212,54 +202,78 @@ class ChatApp(App):
         else:
             self.tui = True
 
+    class Foo(Markdown):
+        pass
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        yield TextLog(highlight=True, markup=True)
-        yield Label()
-        yield Input()
+        with Horizontal():
+            yield DebugPane()
+            with Vertical():
+                self.chat_container = VerticalScroll(id="chat-container")
+                yield self.chat_container
+                yield Label(id="instructions")
+                yield Input()
         yield Footer()
 
     def on_ready(self) -> None:
         """Called  when the DOM is ready."""
-        text_log = self.query_one(TextLog)
-        label = self.query_one(Label)
+        label = self.query_one("#instructions")
         input = self.query_one(Input)
 
         label.update("Press [b]Enter[/] to start chatting!")
-        text_log.write(Syntax("This is stuff", "python", indent_guides=True))
-        text_log.write("[bold magenta]Write text or any Rich renderable!")
         input.focus()
+
+        debug_pane = self.query_one(DebugPane)
+        debug_pane.add_entry("model", "Model", self.llm_model_name)
+        debug_pane.add_entry("temp", "Temperature", self.llm_temperature)
+        debug_pane.add_entry("persona", "Persona", self.current_persona)
 
     @on(Input.Submitted)
     def submit_question(self, event: events) -> None:
-        text_log = self.query_one(TextLog)
         input = self.query_one(Input)
-        text_log.write(f"[bold blue]{event.value}")
+        self.post_message(self.AddToChatMessage(role="user", message=event.value))
+
+        # clear the input
         input.value = ""
-        self.run_worker(self.ask_question(event.value), exit_on_error=True)
-        # self.run_worker(
-        #     self.conversation.arun(event.value, callbacks=[GetTokenSyncHandler()]),
-        #     exit_on_error=True,
-        #     exclusive=True,
-        # )
+
+        # ask_question is a work function, so it will be run in a separate thread
+        # then indicate that this is the end of this particular chat turn.
+        debug_pane = self.query_one(DebugPane)
+        debug_pane.add_entry("model", "Model", self.llm_model_name)
+        debug_pane.add_entry("temp", "Temperature", self.llm_temperature)
+        debug_pane.add_entry("persona", "Persona", self.current_persona)
+        debug_pane.add_entry("question", "Question", event.value)
+        debug_pane.add_entry("prompt", "Prompt", self.app.conversation.prompt)
+        self.ask_question(event.value)
+        self.post_message(self.EndChatTurn())
 
     def on_key(self, event: events.Key) -> None:
         """Write Key events to log."""
-        text_log = self.query_one(TextLog)
-        text_log.write(event)
+        pass
+        # text_log = self.query_one(TextLog)
+        # text_log.write(event)
+        # self.post_message(self.AddToChatMessage("keypress"))
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
         self.dark = not self.dark
+
+    def action_toggle_debug(self) -> None:
+        """An action to toggle debug mode."""
+        self._show_debug = not self._show_debug
 
     def count_tokens(self, chain, query):
         with get_openai_callback() as cb:
             result = chain.run(query)
         print(result)
         print(f"Spent a total of {cb.total_tokens} tokens\n")
-
         return result
+
+    def watch__show_debug(self, show_debug: bool) -> None:
+        """When __show_debug changes, toggle the class the debug widget."""
+        self.app.set_class(show_debug, "-show-debug")
 
     # there is a bug in actually using templates with the memory object, so we
     # build the prompt template manually
@@ -298,6 +312,14 @@ class ChatApp(App):
         return ChatPromptTemplate.from_messages(base)
 
     def set_persona(self, persona: str):
+        try:
+            debug_pane = self.query_one(DebugPane)
+        except NoMatches:
+            pass
+        else:
+            debug_pane.update_entry("persona", persona)
+
+        self.current_persona = persona
         if persona not in self.personas:
             raise ValueError(f"Persona '{persona}' not found")
         # have to rebuild prompt and chain due to
@@ -311,14 +333,78 @@ class ChatApp(App):
         )
         self.memory.clear()
 
+    @work(exclusive=True)
     async def ask_question(self, question: str):
-        """Ask a question to the AI and return the response."""
-        text_log = self.query_one(TextLog)
+        """Ask a question to the AI and return the response.  Textual work function."""
+
+        # if the question starts with 'persona', or 'personas' get the persona, if no
+        # persona is specified, show the available personas
+        if question == "personas" or question == "persona":
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="Available Personas:\n")
+            )
+            for persona in self.personas:
+                self.post_message(
+                    self.AddToChatMessage(role="assistant", message=f" - {persona}\n")
+                )
+            self.post_message(self.EndChatTurn())
+            return
+
+        if question.startswith("persona"):
+            # load the new persona
+            persona = question.split(maxsplit=1)[1].strip()
+            if persona not in self.personas:
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant", message=f"Persona '{persona}' not found"
+                    )
+                )
+                return
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant", message=f"Setting persona to '{persona}'"
+                )
+            )
+            self.set_persona(persona=persona)
+            self.post_message(self.EndChatTurn())
+            return
+
+        # if the question starts with 'summary', summarize the conversation
+        if question.startswith("summary"):
+            # get the summary
+            summary = self.memory.summarize()
+            # post the summary
+            self.post_message(self.AddToChatMessage(role="assistant", message=summary))
+            self.post_message(self.EndChatTurn())
+            return
+
+        # if the question starts with 'temperature', set the temperature
+        if question.startswith("temperature"):
+            # get the temperature
+            self.llm_temperature = float(question.split(maxsplit=1)[1].strip())
+            # post the summary
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=f"Temperature set to {self.llm_temperature}",
+                )
+            )
+            self.post_message(self.EndChatTurn())
+            return
+
+        self._current_question = question
+
         await self.conversation.arun(
-            question, callbacks=[StreamTokenCallback(text_log)]
+            question,
+            callbacks=[StreamTokenCallback(self)],
         )
 
+        # Done with response; clear the chatbox
+        self.scroll_to_end()
+        self.post_message(self.EndChatTurn())
+
     def input_loop(self):
+        """When not using the TUI, ask and process basic input."""
         mutli_line_input = False
         while True:
             if mutli_line_input:
@@ -352,8 +438,8 @@ class ChatApp(App):
             elif query == "ml":
                 mutli_line_input = not mutli_line_input
 
-            # if query starts with 'persona', or 'personas' get the persona, if it no persona
-            # is specified, show the available personas
+            # if query starts with 'persona', or 'personas' get the persona, if it no
+            # persona is specified, show the available personas
             elif query == "personas" or query == "persona":
                 print("Available personas:")
                 for persona in self.personas:
@@ -375,15 +461,80 @@ class ChatApp(App):
         """Run the app."""
 
         if self.tui:
-            super().run(*args, **kwargs)
+            try:
+                super().run(*args, **kwargs)
+            except asyncio.exceptions.CancelledError:
+                self.log.debug("Markdown crashed\n{}", self.chatbox.markdown)
         else:
             self.input_loop()
+
+    def scroll_to_end(self) -> None:
+        if self.chat_container is not None:
+            self.chat_container.refresh()
+            self.chat_container.scroll_end(animate=False)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Called when the worker state changes."""
         self.log(event)
 
+    # Built-in Utility functions automatically called by langchain callbacks
 
-if __name__ == "__main__":
+    async def new_token_post(self, token: str) -> None:
+        """Post a new token to the chatbox."""
+        self.post_message(self.AddToChatMessage(role="assistant", message=token))
+
+    # Custom Message Handlers - these are in two parts:
+    # 1. A Message class that is used to send the message and embed data
+    # 2. A function that is decorated with @on(MessageClass) that will be called when
+    #    the message is received
+
+    class AddToChatMessage(Message):
+        def __init__(self, role: str, message: str) -> None:
+            assert role in ["user", "assistant"]
+            self.role = role
+            self.message = message
+            super().__init__()
+
+    class EndChatTurn(Message):
+        pass
+
+    @on(AddToChatMessage)
+    async def add_to_chat_message(self, chat_token: AddToChatMessage) -> None:
+        chunk = chat_token.message
+        role = chat_token.role
+
+        # Create a ChatTurn widget if we don't have one and mount it in the container
+        if self.chatbox is None:
+            self.chatbox = ChatTurn(role=role)
+            self.log.debug("mounting new chatbox\n\n")
+            # self.scroll_to_end()
+            await self.chat_container.mount(self.chatbox)
+
+        self.log.debug("updating chatbox")
+        # Add the message to the active chatbox
+        # self.scroll_to_end()
+        await self.chatbox.append_chunk(chunk)
+
+        self.app.log.debug('message is: "{}"'.format(self.chatbox.message))
+        self.app.log.debug('message markdown is: "{}"'.format(self.chatbox.markdown))
+
+        # if we're not near the bottom, scroll to the bottom
+        scroll_y = self.chat_container.scroll_y
+        max_scroll_y = self.chat_container.max_scroll_y
+        if scroll_y in range(max_scroll_y - 3, max_scroll_y + 1):
+            self.chat_container.scroll_end(animate=False)
+
+    @on(EndChatTurn)
+    async def end_chat_turn(self, event: EndChatTurn) -> None:
+        """Called when the worker state changes."""
+        # if we have a chatbox, close it.
+        self.chatbox = None
+
+
+def main():
     app = ChatApp()
     app.run()
+
+
+if __name__ == "__main__":
+    main()

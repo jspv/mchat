@@ -1,0 +1,92 @@
+Header {
+    dock: top;
+}
+
+#chat-container {
+    border: round $primary;
+    /* box-sizing: content-box; */
+
+    /* height: auto; */
+    /* height: 20; */
+}
+
+#spacer {
+    border: red;
+    /* height: auto; */
+    /* height: 100%; */
+}
+
+Input {
+    color: $text;
+}
+
+ChatTurn {
+    /* width: 100%; */
+    /* max-width: 1fr; */
+    /* box-sizing: border-box; */
+    /* margin: 1 2;
+    padding: 1 2; */
+
+    /* border: solid gray; */
+    height: auto;
+    /* height: 100%; */
+    /* height: 40; */
+}
+
+ChatTurn .user {
+    align: right middle;
+    height: auto;
+    /* border: green; */
+}
+
+ChatTurn .assistant {
+    align: left middle;
+    height: auto;
+}
+
+DebugPane {
+    border: solid green;
+    width: 20%;
+    height: auto;
+    display: none;
+    /* overflow-x: scroll; */
+}
+
+.-show-debug DebugPane {
+    display: block;
+}
+
+.user #chatturn-markdown {
+    border: yellow;
+    color: yellow;
+    background: $boost;
+    height: auto;
+    width: 70%;
+}
+
+.assistant #chatturn-markdown {
+    border: purple;
+    color: purple;
+    height: auto;
+    background: $boost;
+    width: 70%;
+}
+
+/* Need to specify height for scroll to work */
+DebugPaneText {
+    height: auto;
+}
+
+VerticalScroll DebugPane {
+    border: red;
+    height: auto;
+}
+
+.debugpanetext--value {
+    color: blue;
+}
+
+
+#instructions {
+    color: $text;
+}
