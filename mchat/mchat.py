@@ -25,6 +25,7 @@ from rich.align import Align
 
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
+from mchat.widgets.PromptInput import PromptInput
 
 from textual.containers import Vertical, Horizontal
 
@@ -73,10 +74,13 @@ class ChatApp(App):
     BINDINGS = [
         ("ctrl+r", "toggle_dark", "Toggle dark mode"),
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
+        ("ctrl+[", "toggle_multiline", "Toggle multi-line mode")
     ]
 
     # Toggles debug pane on/off (default is off)
     _show_debug = Reactive(False)
+
+    _multiline_mode = Reactive(False)
 
     # placeholder for the current question
     _current_question = Reactive("")
@@ -209,7 +213,7 @@ class ChatApp(App):
                 self.chat_container = VerticalScroll(id="chat-container")
                 yield self.chat_container
                 yield Label(id="instructions")
-                yield Input()
+                yield PromptInput()
         yield Footer()
 
     def on_ready(self) -> None:
@@ -257,6 +261,10 @@ class ChatApp(App):
     def action_toggle_debug(self) -> None:
         """An action to toggle debug mode."""
         self._show_debug = not self._show_debug
+
+    def action_toggle_multiline(self) -> None:
+        """An action to toggle multi-line mode."""
+        self._toggle_multiline = not self._toggle_multiline
 
     def count_tokens(self, chain, query):
         with get_openai_callback() as cb:
