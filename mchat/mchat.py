@@ -2,7 +2,7 @@ import os
 import asyncio
 import argparse
 
-from environs import Env
+from config import settings
 
 from langchain.callbacks import get_openai_callback
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
@@ -92,30 +92,13 @@ class ChatApp(App):
         # current active widget for storing a conversation turn
         self.chatbox = None
 
-        env = Env()
-        env.read_env()
-
-        env("OPENAI_API_KEY", default=None)
+        # set the API key into environment variable
+        os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
 
         # Initialize the language model
-        self.llm_model_name = "gpt-3.5-turbo"
-        # self.llm_model_name = "gpt-4"
-        self.llm_temperature = 0.7
-        if self.tui is True:
-            self.llm = ChatOpenAI(
-                model_name=self.llm_model_name,
-                verbose=False,
-                streaming=True,
-                temperature=self.llm_temperature,
-            )
-        else:
-            self.llm = ChatOpenAI(
-                model_name=self.llm_model_name,
-                verbose=False,
-                streaming=True,
-                callbacks=[StreamingStdOutCallbackHandler()],
-                temperature=self.llm_temperature,
-            )
+        self.llm_model_name = settings.default_model
+        self.llm_temperature = settings.default_temperature
+        self.available_models = settings.models
 
         # Initialize the summary model
         self.summary_model_name = "gpt-3.5-turbo"
@@ -181,29 +164,38 @@ class ChatApp(App):
         self.memory = ConversationSummaryBufferMemory(
             llm=self.summary_llm, max_token_limit=1000, return_messages=True
         )
-
+        self._initialize_model()
         self.set_persona("default")
+
+    def _initialize_model(self):
+        """Initialize the language model."""
+        self.log(f"Initializing model {self.llm_model_name}")
+        self.llm = ChatOpenAI(
+            model_name=self.llm_model_name,
+            verbose=False,
+            streaming=True,
+            callbacks=[StreamingStdOutCallbackHandler()],
+            temperature=self.llm_temperature,
+        )
+
+    def _reinitialize_model(self):
+        """Initialize the language model."""
+        self._initialize_model()
+        self.conversation = ConversationChain(
+            llm=self.llm,
+            verbose=False,
+            prompt=self.prompt,
+            memory=self.memory,
+        )
+        debug_pane = self.query_one(DebugPane)
+        debug_pane.update_status()
 
     def parse_args_and_initialize(self):
         parser = argparse.ArgumentParser()
-
-        parser.add_argument(
-            "-t",
-            "--text",
-            help="use straight text instead of the TUI. ",
-            action="store_true",
-        )
-
         parser.add_argument(
             "-v", "--verbose", help="Increase verbosity", action="store_true"
         )
-
         args, unknown = parser.parse_known_args()
-
-        if args.text:
-            self.tui = False
-        else:
-            self.tui = True
 
     class Foo(Markdown):
         pass
@@ -232,6 +224,8 @@ class ChatApp(App):
         debug_pane.add_entry("model", "Model", self.llm_model_name)
         debug_pane.add_entry("temp", "Temperature", self.llm_temperature)
         debug_pane.add_entry("persona", "Persona", self.current_persona)
+        debug_pane.add_entry("question", "Question", "")
+        debug_pane.add_entry("prompt", "Prompt", "")
 
     @on(Input.Submitted)
     def submit_question(self, event: events) -> None:
@@ -243,13 +237,10 @@ class ChatApp(App):
 
         # ask_question is a work function, so it will be run in a separate thread
         # then indicate that this is the end of this particular chat turn.
-        debug_pane = self.query_one(DebugPane)
-        debug_pane.add_entry("model", "Model", self.llm_model_name)
-        debug_pane.add_entry("temp", "Temperature", self.llm_temperature)
-        debug_pane.add_entry("persona", "Persona", self.current_persona)
-        debug_pane.add_entry("question", "Question", event.value)
-        debug_pane.add_entry("prompt", "Prompt", self.app.conversation.prompt)
+
         self.ask_question(event.value)
+        debug_pane = self.query_one(DebugPane)
+        debug_pane.update_entry("prompt", self.app.conversation.prompt)
         self.post_message(self.EndChatTurn())
 
     def on_key(self, event: events.Key) -> None:
@@ -257,7 +248,7 @@ class ChatApp(App):
         pass
         # text_log = self.query_one(TextLog)
         # text_log.write(event)
-        # self.post_message(self.AddToChatMessage("keypress"))
+        # self.post_message(self.AddToChatMessperage("keypress"))
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
@@ -327,11 +318,11 @@ class ChatApp(App):
             raise ValueError(f"Persona '{persona}' not found")
         # have to rebuild prompt and chain due to
         # https://github.com/hwchase17/langchain/issues/1800 - can't use templates
-        prompt = self.build_prompt_template(persona=persona)
+        self.prompt = self.build_prompt_template(persona=persona)
         self.conversation = ConversationChain(
             llm=self.llm,
             verbose=False,
-            prompt=prompt,
+            prompt=self.prompt,
             memory=self.memory,
         )
         self.memory.clear()
@@ -340,8 +331,7 @@ class ChatApp(App):
     async def ask_question(self, question: str):
         """Ask a question to the AI and return the response.  Textual work function."""
 
-        # if the question starts with 'persona', or 'personas' get the persona, if no
-        # persona is specified, show the available personas
+        # if the question is either 'persona', or 'personas' show the available personas
         if question == "personas" or question == "persona":
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="Available Personas:\n")
@@ -350,7 +340,7 @@ class ChatApp(App):
                 self.post_message(
                     self.AddToChatMessage(role="assistant", message=f" - {persona}\n")
                 )
-            self.post_message(self.EndChatTurn())
+            # self.post_message(self.EndChatTurn())
             return
 
         if question.startswith("persona"):
@@ -369,13 +359,43 @@ class ChatApp(App):
                 )
             )
             self.set_persona(persona=persona)
+            debug_pane = self.query_one(DebugPane)
+            debug_pane.update_entry("persona", persona)
+            self.post_message(self.EndChatTurn())
+            return
+
+        # if the question is 'models', or 'model', show available models
+        if question == "models" or question == "model":
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="Available Models:\n")
+            )
+            for model in self.available_models:
+                self.post_message(
+                    self.AddToChatMessage(role="assistant", message=f" - {model}\n")
+                )
+            self.post_message(self.EndChatTurn())
+            return
+
+        # if the question starts with 'model', set the model
+        if question.startswith("model"):
+            # get the model
+            self.llm_model_name = question.split(maxsplit=1)[1].strip()
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=f"Model set to {self.llm_model_name}",
+                )
+            )
+            self._reinitialize_model()
+            debug_pane = self.query_one(DebugPane)
+            debug_pane.update_entry("model", self.llm_model_name)
             self.post_message(self.EndChatTurn())
             return
 
         # if the question starts with 'summary', summarize the conversation
         if question.startswith("summary"):
             # get the summary
-            summary = self.memory.summarize()
+            summary = str(self.memory.load_memory_variables({}))
             # post the summary
             self.post_message(self.AddToChatMessage(role="assistant", message=summary))
             self.post_message(self.EndChatTurn())
@@ -392,10 +412,15 @@ class ChatApp(App):
                     message=f"Temperature set to {self.llm_temperature}",
                 )
             )
+            self._reinitialize_model()
+            debug_pane = self.query_one(DebugPane)
+            debug_pane.update_entry("temp", self.llm_temperature)
             self.post_message(self.EndChatTurn())
             return
 
         self._current_question = question
+        debug_pane = self.query_one(DebugPane)
+        debug_pane.update_entry("question", question)
 
         await self.conversation.arun(
             question,
@@ -406,70 +431,13 @@ class ChatApp(App):
         self.scroll_to_end()
         self.post_message(self.EndChatTurn())
 
-    def input_loop(self):
-        """When not using the TUI, ask and process basic input."""
-        mutli_line_input = False
-        while True:
-            if mutli_line_input:
-                print(
-                    "[Multi-line] Type 'quit' to exit, 'new' to start a new"
-                    " conversation, 'ml' to switch off multi-line input.  Press ctrl+d"
-                    " or enter '.' on a blank line: to process input."
-                )
-                query = ""
-                while True:
-                    # read lines
-                    try:
-                        line = input()
-                    except EOFError:
-                        break
-                    if line == ".":
-                        break
-                    query += line + "\n"
-                query = query.strip()
-            else:
-                query = input(
-                    "Type 'quit' to exit, 'new' to start a new conversation, 'ml' to"
-                    " switch to multi-line input: "
-                )
-
-            if query == "quit":
-                exit()
-            if query == "new":
-                print("Starting a new conversation...")
-                self.memory.clear()
-            elif query == "ml":
-                mutli_line_input = not mutli_line_input
-
-            # if query starts with 'persona', or 'personas' get the persona, if it no
-            # persona is specified, show the available personas
-            elif query == "personas" or query == "persona":
-                print("Available personas:")
-                for persona in self.personas:
-                    print(f" - {persona}")
-            elif query.startswith("persona"):
-                # load the new persona
-                persona = query.split(maxsplit=1)[1].strip()
-                if persona not in self.personas:
-                    print(f"Persona '{persona}' not found")
-                    continue
-                print(f"Setting persona to '{persona}'")
-                self.set_persona(persona=persona)
-
-            else:
-                self.conversation.run(query)
-                print("\n")
-
     def run(self, *args, **kwargs):
         """Run the app."""
 
-        if self.tui:
-            try:
-                super().run(*args, **kwargs)
-            except asyncio.exceptions.CancelledError:
-                self.log.debug("Markdown crashed\n{}", self.chatbox.markdown)
-        else:
-            self.input_loop()
+        try:
+            super().run(*args, **kwargs)
+        except asyncio.exceptions.CancelledError:
+            self.log.debug("Markdown crashed\n{}", self.chatbox.markdown)
 
     def scroll_to_end(self) -> None:
         if self.chat_container is not None:
@@ -509,13 +477,8 @@ class ChatApp(App):
         # Create a ChatTurn widget if we don't have one and mount it in the container
         if self.chatbox is None:
             self.chatbox = ChatTurn(role=role)
-            self.log.debug("mounting new chatbox\n\n")
-            # self.scroll_to_end()
             await self.chat_container.mount(self.chatbox)
 
-        self.log.debug("updating chatbox")
-        # Add the message to the active chatbox
-        # self.scroll_to_end()
         await self.chatbox.append_chunk(chunk)
 
         self.app.log.debug('message is: "{}"'.format(self.chatbox.message))

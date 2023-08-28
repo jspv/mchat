@@ -44,6 +44,7 @@ class DebugPane(Widget):
             yield self.debug_pane_text
 
     def render(self) -> None:
+        self.app.log("Rendering DebugPane")
         if self._regenerate_from_dict is True:
             self.debug_pane_text._entries = self._entries
             self.debug_pane_text.update()

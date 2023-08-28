@@ -17,7 +17,7 @@ langchain = {extras = ["llm"], version = "^0.0.232"}
 tiktoken = "^0.4.0"
 textual = "^0.29.0"
 rich = "^13.5.1"
-environs = "^9.5.0"
+dynaconf = "^3.2.2"
 
 [tool.poetry.scripts]
 mchat = "mchat.mchat:main"
