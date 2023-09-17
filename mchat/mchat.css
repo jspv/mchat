@@ -2,23 +2,7 @@ Header {
     dock: top;
 }
 
-#chat-container {
-    border: round $primary;
-    /* box-sizing: content-box; */
-
-    /* height: auto; */
-    /* height: 20; */
-}
-
-#spacer {
-    border: red;
-    /* height: auto; */
-    /* height: 100%; */
-}
-
-Input {
-    color: $text;
-}
+/* Chat Area */
 
 ChatTurn {
     /* width: 100%; */
@@ -44,18 +28,6 @@ ChatTurn .assistant {
     height: auto;
 }
 
-DebugPane {
-    border: solid green;
-    width: 20%;
-    height: auto;
-    display: none;
-    /* overflow-x: scroll; */
-}
-
-.-show-debug DebugPane {
-    display: block;
-}
-
 .user #chatturn-markdown {
     border: yellow;
     color: yellow;
@@ -72,6 +44,59 @@ DebugPane {
     width: 70%;
 }
 
+#chat-container {
+    border: round $primary;
+    /* box-sizing: content-box; */
+
+    /* height: auto; */
+    /* height: 20; */
+}
+
+#spacer {
+    border: red;
+    /* height: auto; */
+    /* height: 100%; */
+}
+
+/* Input Area */
+
+PromptInput {
+    height: auto;
+}
+
+MultiLineInput {
+    border-title-color: $secondary;
+    border-title-background: $primary;
+    border-title-align: right;
+    border-title-style: bold;
+}
+
+.singeline-input {
+    height: 3;
+}
+
+.multiline-input {
+    height: 8;
+}
+
+#instructions {
+    color: $text;
+}
+
+/* Debug Pane */
+
+DebugPane {
+    border: solid green;
+    width: 20%;
+    height: auto;
+    display: none;
+    /* overflow-x: scroll; */
+}
+
+.-show-debug DebugPane {
+    display: block;
+}
+
 /* Need to specify height for scroll to work */
 DebugPaneText {
     height: auto;
@@ -83,10 +108,9 @@ VerticalScroll DebugPane {
 }
 
 .debugpanetext--value {
-    color: blue;
+    color: auto;
 }
 
-
-#instructions {
-    color: $text;
+.debugpanetext--key {
+    color: $secondary;
 }

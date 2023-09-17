@@ -25,6 +25,7 @@ from rich.align import Align
 
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
+
 from mchat.widgets.PromptInput import PromptInput
 
 from textual.containers import Vertical, Horizontal
@@ -74,13 +75,10 @@ class ChatApp(App):
     BINDINGS = [
         ("ctrl+r", "toggle_dark", "Toggle dark mode"),
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
-        ("ctrl+[", "toggle_multiline", "Toggle multi-line mode")
     ]
 
     # Toggles debug pane on/off (default is off)
     _show_debug = Reactive(False)
-
-    _multiline_mode = Reactive(False)
 
     # placeholder for the current question
     _current_question = Reactive("")
@@ -212,14 +210,13 @@ class ChatApp(App):
             with Vertical():
                 self.chat_container = VerticalScroll(id="chat-container")
                 yield self.chat_container
-                yield Label(id="instructions")
                 yield PromptInput()
         yield Footer()
 
     def on_ready(self) -> None:
         """Called  when the DOM is ready."""
         label = self.query_one("#instructions")
-        input = self.query_one(Input)
+        input = self.query_one(PromptInput)
 
         label.update("Press [b]Enter[/] to start chatting!")
         input.focus()
@@ -231,9 +228,9 @@ class ChatApp(App):
         debug_pane.add_entry("question", "Question", "")
         debug_pane.add_entry("prompt", "Prompt", "")
 
-    @on(Input.Submitted)
+    @on(PromptInput.Submitted)
     def submit_question(self, event: events) -> None:
-        input = self.query_one(Input)
+        input = self.query_one(PromptInput)
         self.post_message(self.AddToChatMessage(role="user", message=event.value))
 
         # clear the input
@@ -261,10 +258,6 @@ class ChatApp(App):
     def action_toggle_debug(self) -> None:
         """An action to toggle debug mode."""
         self._show_debug = not self._show_debug
-
-    def action_toggle_multiline(self) -> None:
-        """An action to toggle multi-line mode."""
-        self._toggle_multiline = not self._toggle_multiline
 
     def count_tokens(self, chain, query):
         with get_openai_callback() as cb:
