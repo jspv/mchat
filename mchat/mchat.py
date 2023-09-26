@@ -22,6 +22,7 @@ from rich.table import Table
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.align import Align
+from rich.pretty import pprint
 
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
@@ -34,6 +35,7 @@ from textual.containers import Vertical, Horizontal
 from typing import Any, Dict, List
 
 from langchain.chat_models import ChatOpenAI
+from langchain.chat_models import AzureChatOpenAI
 from langchain.chains import ConversationChain
 from langchain.prompts import (
     ChatPromptTemplate,
@@ -52,7 +54,6 @@ from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
 # os.environ["LANGCHAIN_SESSION"] = "callback_testing"  # This is session
 
 EXTRA_PERSONA_FILE = "personas.json"
-
 
 class StreamTokenCallback(AsyncCallbackHandler):
     """Callback handler that posts new tokens to the chatbox."""
@@ -96,6 +97,13 @@ class ChatApp(App):
 
         # set the API key into environment variable
         os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
+    
+        #HACK TEST
+        os.environ["OPENAI_API_KEY"] = settings.MS_OPENAI_API_KEY
+        os.environ["OPENAI_API_BASE"] = settings.ms_openai_gpt_35["base"]
+        os.environ["OPENAI_API_VERSION"] = settings.ms_openai_gpt_35["api"]
+        self.ms_deployment_name = settings.ms_openai_gpt_35["deployment"]
+    
 
         # Initialize the language model
         self.llm_model_name = settings.default_model
@@ -172,9 +180,16 @@ class ChatApp(App):
     def _initialize_model(self):
         """Initialize the language model."""
         self.log(f"Initializing model {self.llm_model_name}")
-        self.llm = ChatOpenAI(
-            model_name=self.llm_model_name,
-            verbose=False,
+        # self.llm = ChatOpenAI(
+        #     model_name=self.llm_model_name,
+        #     verbose=False,
+        #     streaming=True,
+        #     callbacks=[StreamingStdOutCallbackHandler()],
+        #     temperature=self.llm_temperature,
+        # )
+        self.llm = AzureChatOpenAI(
+            deployment_name=self.ms_deployment_name,
+            verbose=True,
             streaming=True,
             callbacks=[StreamingStdOutCallbackHandler()],
             temperature=self.llm_temperature,
