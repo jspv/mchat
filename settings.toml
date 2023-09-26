@@ -1,3 +1,10 @@
-models = ["gpt-3.5-turbo", "gpt-4"]
+models = ["gpt_models", "ms_models"]
+gpt_models = ["gpt-3.5-turbo", "gpt-4"]
+ms_models = ["ms-openai-gpt-3.5"]
+ms_openai_gpt_35.deployment = "test"
+ms_openai_gpt_35.api = "2023-03-15-preview"
+ms_openai_gpt_35.proxy = ""
+# base moved to .secrets.toml as it references account-specific information.  .secrects.toml needs
+# dynaconf-merge = true for this to work
 default_model = "gpt-3.5-turbo"
 default_temperature = 0.7
