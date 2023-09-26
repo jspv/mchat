@@ -14,6 +14,7 @@ from textual import events
 from textual._segment_tools import line_crop
 from textual.binding import Binding, BindingType
 from textual.events import Blur, Focus, Mount
+from textual.containers import VerticalScroll
 from textual.geometry import Size
 from textual.message import Message
 from textual.reactive import reactive
@@ -36,15 +37,30 @@ class PromptInput(Widget):
         )
     ]
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        single_line_prompt: str = "Press [b]Enter[/] to start chatting",
+        multi_line_prompt: str = "Press [b]ctrl-j[/] to start chatting",
+        *args,
+        **kwargs,
+    ) -> None:
+        self.single_line_prompt = single_line_prompt
+        self.multi_line_prompt = multi_line_prompt
         super().__init__(*args, **kwargs)
 
         self._multiline_mode = False
 
     def compose(self) -> None:
-        yield Label(id="instructions")
+        self.instructions_label = Label(
+            self.single_line_prompt,
+            id="instructions",
+        )
+        yield self.instructions_label
         self.ml_input = MultiLineInput()
         yield self.ml_input
+        # with VerticalScroll():
+        #     self.ml_input = MultiLineInput()
+        #     yield self.ml_input
 
     @property
     def value(self):
@@ -105,16 +121,19 @@ class PromptInput(Widget):
         """An action to toggle multi-line mode."""
         self._multiline_mode = not self._multiline_mode
         self.ml_input._multiline_mode = self._multiline_mode
+
         if self._multiline_mode:
             self.ml_input.border_title = "Multi-Line: On"
             self.ml_input.remove_class("singeline-input")
             self.ml_input.add_class("multiline-input")
             self.ml_input.notify_style_update()
+            self.instructions_label.update(self.multi_line_prompt)
         else:
             self.ml_input.border_title = "Multi-Line: Off"
             self.ml_input.remove_class("multiline-input")
             self.ml_input.add_class("singeline-input")
             self.ml_input.notify_style_update()
+            self.instructions_label.update(self.single_line_prompt)
 
 
 class _InputRenderable:
@@ -176,7 +195,7 @@ class MultiLineInput(Widget, can_focus=True):
         Binding("home,ctrl+a", "home", "home", show=False),
         Binding("end,ctrl+e", "end", "end", show=False),
         Binding("delete,ctrl+d", "delete_right", "delete right", show=False),
-        Binding("ctrl+o", "submit", "submit", show=False),
+        Binding("ctrl+j", "submit", "submit", show=False),
         Binding(
             "ctrl+w", "delete_left_word", "delete left to start of word", show=False
         ),

@@ -215,10 +215,7 @@ class ChatApp(App):
 
     def on_ready(self) -> None:
         """Called  when the DOM is ready."""
-        label = self.query_one("#instructions")
         input = self.query_one(PromptInput)
-
-        label.update("Press [b]Enter[/] to start chatting!")
         input.focus()
 
         debug_pane = self.query_one(DebugPane)

@@ -11,6 +11,7 @@ from textual.widget import Widget
 from textual.geometry import Size
 
 
+# Testing using MarkdownWidget instead of a Static rendering Markdown
 class newChatTurn(Widget):
     def compose(self) -> None:
         with Vertical(classes=self.role, id="chatturn-container"):
