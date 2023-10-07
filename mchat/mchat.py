@@ -26,13 +26,14 @@ from rich.pretty import pprint
 
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
-
 from mchat.widgets.PromptInput import PromptInput
+
+from mchat.Conversation import ConversationRecord, Turn
 
 from textual.containers import Vertical, Horizontal
 
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from langchain.chat_models import ChatOpenAI
 from langchain.chat_models import AzureChatOpenAI
@@ -45,7 +46,10 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
 )
 from langchain.schema import SystemMessage, HumanMessage, AIMessage, LLMResult
-from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
+from langchain.chains.conversation.memory import (
+    ConversationSummaryBufferMemory,
+    ConversationBufferMemory,
+)
 
 
 # Tracing settings for debugging
@@ -55,6 +59,7 @@ from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
 
 EXTRA_PERSONA_FILE = "personas.json"
 
+
 class StreamTokenCallback(AsyncCallbackHandler):
     """Callback handler that posts new tokens to the chatbox."""
 
@@ -62,8 +67,8 @@ class StreamTokenCallback(AsyncCallbackHandler):
         self.app = app
         super().__init__(*args, **kwargs)
 
-    # method is called by the Langchain callback system when a new token
-    # is available
+    # this method is automatically called by the Langchain callback system when a new
+    # token is available
     async def on_llm_new_token(self, token: str, **kwargs) -> None:
         self.app.post_message(
             self.app.AddToChatMessage(role="assistant", message=token)
@@ -84,9 +89,7 @@ class ChatApp(App):
     # placeholder for the current question
     _current_question = Reactive("")
 
-    def __init__(self, tui: bool = True, *args, **kwargs):
-        # placeholder for the current question
-
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # parse arguments
@@ -95,28 +98,10 @@ class ChatApp(App):
         # current active widget for storing a conversation turn
         self.chatbox = None
 
-        # set the API key into environment variable
-        os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
-    
-        #HACK TEST
-        os.environ["OPENAI_API_KEY"] = settings.MS_OPENAI_API_KEY
-        os.environ["OPENAI_API_BASE"] = settings.ms_openai_gpt_35["base"]
-        os.environ["OPENAI_API_VERSION"] = settings.ms_openai_gpt_35["api"]
-        self.ms_deployment_name = settings.ms_openai_gpt_35["deployment"]
-    
+        # Initialize Conversation record used to store conversation details
+        self.record = ConversationRecord()
 
-        # Initialize the language model
-        self.llm_model_name = settings.default_model
-        self.llm_temperature = settings.default_temperature
-        self.available_models = settings.models
-
-        # Initialize the summary model
-        self.summary_model_name = "gpt-3.5-turbo"
-        self.summary_temperature = 0.1
-        self.summary_llm = ChatOpenAI(
-            model_name=self.summary_model_name, temperature=self.summary_temperature
-        )
-
+        # load personas
         self.personas = {
             "financial manager": {
                 "description": (
@@ -171,33 +156,85 @@ class ChatApp(App):
                 extra_personas = json.load(f)
             self.personas.update(extra_personas)
 
-        self.memory = ConversationSummaryBufferMemory(
-            llm=self.summary_llm, max_token_limit=1000, return_messages=True
-        )
-        self._initialize_model()
-        self.set_persona("default")
+        # load the models from settings - name: {key: value,...}
+        self.models = {}
+        for model_family in settings.model_families:
+            for model in getattr(settings, model_family):
+                api_key = getattr(settings, f"{model_family}_api_key")
+                # see if the model has any parameters
+                print(model)
+                if getattr(settings, model, None) is not None:
+                    self.models[model] = dict(getattr(settings, model))
+                    self.models[model]["api_key"] = api_key
+                else:
+                    self.models[model] = {"api_key": api_key}
+        self.available_models = self.models.keys()
 
-    def _initialize_model(self):
-        """Initialize the language model."""
-        self.log(f"Initializing model {self.llm_model_name}")
-        # self.llm = ChatOpenAI(
-        #     model_name=self.llm_model_name,
-        #     verbose=False,
-        #     streaming=True,
-        #     callbacks=[StreamingStdOutCallbackHandler()],
-        #     temperature=self.llm_temperature,
-        # )
-        self.llm = AzureChatOpenAI(
-            deployment_name=self.ms_deployment_name,
-            verbose=True,
-            streaming=True,
-            callbacks=[StreamingStdOutCallbackHandler()],
-            temperature=self.llm_temperature,
+        # Initialize the language model
+        self.llm_model_name = settings.default_model
+        self.llm_temperature = settings.default_temperature
+        self.llm = self._initialize_model(
+            self.llm_model_name, [StreamingStdOutCallbackHandler()]
         )
+
+        # Initialize the summary model
+        self.summary_model_name = settings.memory_model
+        self.summary_temperature = settings.memory_model_temperature
+        self.summary_max_tokens = settings.memory_model_max_tokens
+        self.summary_llm = self._initialize_model(
+            self.summary_model_name, override_temperature=self.summary_temperature
+        )
+
+        self.memory = ConversationSummaryBufferMemory(
+            llm=self.summary_llm,
+            max_token_limit=self.summary_max_tokens,
+            return_messages=True,
+        )
+
+        self.set_persona(getattr(settings, "default_persona", "default"))
+
+    def _initialize_model(
+        self,
+        model_name: str,
+        callbacks: List[BaseCallbackHandler] = [],
+        override_temperature: Optional[float] = None,
+    ):
+        """Initialize the language model."""
+        self.log(f"Initializing model {model_name}")
+
+        temperature = override_temperature or self.llm_temperature
+
+        # if the model name starts with ms_, use the AzureChatOpenAI model
+        if self.llm_model_name.startswith("ms_"):
+            llm = AzureChatOpenAI(
+                deployment_name=self.models[model_name]["deployment"],
+                openai_api_base=self.models[model_name]["base_url"],
+                openai_api_version=self.models[model_name]["api"],
+                openai_api_key=self.models[model_name]["api_key"],
+                verbose=True,
+                streaming=True,
+                callbacks=callbacks,
+                temperature=temperature,
+            )
+        elif self.llm_model_name.startswith("oai_"):
+            llm = ChatOpenAI(
+                model_name=self.models[model_name]["deployment"],
+                openai_api_key=self.models[model_name]["api_key"],
+                verbose=False,
+                streaming=True,
+                callbacks=callbacks,
+                temperature=temperature,
+            )
+        else:
+            raise ValueError(f"Unknown model type {self.llm_model_name}")
+
+        return llm
 
     def _reinitialize_model(self):
         """Initialize the language model."""
-        self._initialize_model()
+        self.llm = self._initialize_model(
+            self.llm_model_name, [StreamingStdOutCallbackHandler()]
+        )
         self.conversation = ConversationChain(
             llm=self.llm,
             verbose=False,
@@ -234,18 +271,28 @@ class ChatApp(App):
         input.focus()
 
         debug_pane = self.query_one(DebugPane)
-        debug_pane.add_entry("model", "Model", self.llm_model_name)
-        debug_pane.add_entry("temp", "Temperature", self.llm_temperature)
-        debug_pane.add_entry("persona", "Persona", self.current_persona)
+        debug_pane.add_entry("model", "Model", lambda: self.llm_model_name)
+        debug_pane.add_entry("temp", "Temperature", lambda: self.llm_temperature)
+        debug_pane.add_entry("persona", "Persona", lambda: self.current_persona)
         debug_pane.add_entry("question", "Question", "")
-        debug_pane.add_entry("prompt", "Prompt", "")
+        debug_pane.add_entry("prompt", "Prompt", lambda: self.app.conversation.prompt)
+        debug_pane.add_entry(
+            "history",
+            "History",
+            lambda: self.memory.load_memory_variables({})["history"],
+        )
+        debug_pane.add_entry(
+            "summary_buffer",
+            "Summary Buffer",
+            lambda: self.memory.moving_summary_buffer,
+        )
 
     @on(PromptInput.Submitted)
     def submit_question(self, event: events) -> None:
         input = self.query_one(PromptInput)
         self.post_message(self.AddToChatMessage(role="user", message=event.value))
 
-        # clear the input
+        # clear the input box
         input.value = ""
 
         # ask_question is a work function, so it will be run in a separate thread
@@ -253,7 +300,7 @@ class ChatApp(App):
 
         self.ask_question(event.value)
         debug_pane = self.query_one(DebugPane)
-        debug_pane.update_entry("prompt", self.app.conversation.prompt)
+        debug_pane.update_status()
         self.post_message(self.EndChatTurn())
 
     def on_key(self, event: events.Key) -> None:
@@ -316,6 +363,8 @@ class ChatApp(App):
         # Human message
         base.append(HumanMessagePromptTemplate.from_template("{input}"))
 
+        self.log.debug(f"Prompt template is: {base}")
+
         return ChatPromptTemplate.from_messages(base)
 
     def set_persona(self, persona: str):
@@ -338,11 +387,15 @@ class ChatApp(App):
             prompt=self.prompt,
             memory=self.memory,
         )
+        print(f"Persona Prompt is: {self.prompt}")
         self.memory.clear()
 
     @work(exclusive=True)
     async def ask_question(self, question: str):
         """Ask a question to the AI and return the response.  Textual work function."""
+
+        # scroll the chat container to the bottom
+        self.scroll_to_end()
 
         # if the question is either 'persona', or 'personas' show the available personas
         if question == "personas" or question == "persona":
@@ -393,6 +446,17 @@ class ChatApp(App):
         if question.startswith("model"):
             # get the model
             self.llm_model_name = question.split(maxsplit=1)[1].strip()
+
+            # check to see if the model is valid
+            if self.llm_model_name not in self.available_models:
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant",
+                        message=f"Model '{self.llm_model_name}' not found",
+                    )
+                )
+                return
+
             self.post_message(
                 self.AddToChatMessage(
                     role="assistant",
@@ -488,9 +552,11 @@ class ChatApp(App):
         role = chat_token.role
 
         # Create a ChatTurn widget if we don't have one and mount it in the container
+        # make sure to scroll to the bottom
         if self.chatbox is None:
             self.chatbox = ChatTurn(role=role)
             await self.chat_container.mount(self.chatbox)
+            self.chat_container.scroll_end(animate=False)
 
         await self.chatbox.append_chunk(chunk)
 
@@ -506,6 +572,17 @@ class ChatApp(App):
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
+        # add the turn to the record
+        self.record.add_turn(
+            persona=self.current_persona,
+            prompt=self._current_question,
+            response=self.chatbox.message,
+            summary=self.memory.moving_summary_buffer,
+            model=self.llm_model_name,
+            temperature=self.llm_temperature,
+            memory=self.memory.load_memory_variables({}),
+        )
+        self.log.debug(self.record.log_last())
         # if we have a chatbox, close it.
         self.chatbox = None
 

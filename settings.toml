@@ -1,10 +1,29 @@
-models = ["gpt_models", "ms_models"]
-gpt_models = ["gpt-3.5-turbo", "gpt-4"]
-ms_models = ["ms-openai-gpt-3.5"]
+model_families = ["oai_models", "ms_models"]
+oai_models = ["oai_gpt-3.5-turbo", "oai_gpt-4"]
+ms_models = ["ms_openai_gpt_35"]
+oai_gpt-3.5-turbo.deployment = "gpt-3.5-turbo"
+oai_gpt-3.5-turbo.max_tokens = 4096
+oai_gpt-4.deployment = "gpt-4"
+oai_gpt-4.max_tokens = 8192
+
 ms_openai_gpt_35.deployment = "test"
+ms_openai_gpt_35.max_tokens = 4096
 ms_openai_gpt_35.api = "2023-03-15-preview"
 ms_openai_gpt_35.proxy = ""
-# base moved to .secrets.toml as it references account-specific information.  .secrects.toml needs
-# dynaconf-merge = true for this to work
-default_model = "gpt-3.5-turbo"
+# base_url moved to .secrets.toml as it references account-specific information.  
+# .secrects.toml needs dynaconf-merge = true for this to work
+#ms_openai_gpt_35.base_url = "https://openai.azure.com"
+
+default_model = "oai_gpt-3.5-turbo"
 default_temperature = 0.7
+default_persona = "linux computer"
+
+# Using ConversationSummaryBufferMemory - specify model and max_tokens
+memory_model = "oai_gpt-3.5-turbo"
+memory_model_temperature = 0.1
+memory_model_max_tokens = 2048
+
+# in .secrets.toml
+# dynaconf_merge = true
+# openai_models_api_key = "oai_ai_api_key_goes_here"
+# ms_models_api_key = "ms_openai_api_key_goes_here"
