@@ -16,7 +16,7 @@ ms_openai_gpt_35.proxy = ""
 
 default_model = "oai_gpt-3.5-turbo"
 default_temperature = 0.7
-default_persona = "linux computer"
+default_persona = "default"
 
 # Using ConversationSummaryBufferMemory - specify model and max_tokens
 memory_model = "oai_gpt-3.5-turbo"

@@ -23,6 +23,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from rich.align import Align
 from rich.pretty import pprint
+import pyperclip
 
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
@@ -109,10 +110,9 @@ class ChatApp(App):
                     " investing in equities, fixed income, alternative investments, and"
                     " real estate. I am familiar with the use of derivatives and"
                     " options to hedge risk and enhance returns. I am familiar with the"
-                    " use of leverage to enhance returns. I am familiar with the use of"
-                    " leverage to hedge risk. I am also an excellent mentor and when I"
-                    " use financial jargon, I will always provide a clear definition"
-                    " for the jargon terms at the end of my response"
+                    " use of leverage to enhance returns. I am also an excellent mentor"
+                    " and when I use financial jargon, I will always provide a clear"
+                    " definition for the jargon terms at the end of my response"
                 ),
                 "extra_context": [],
             },
@@ -286,6 +286,14 @@ class ChatApp(App):
             "Summary Buffer",
             lambda: self.memory.moving_summary_buffer,
         )
+
+    @on(ChatTurn.ChatTurnClicked)
+    def click_chat_turn(self, event: events) -> None:
+        chatturn = event.widget
+
+        # copy contents of chatbox to clipboard
+        self.log.debug("Copy to clipboard: {}", chatturn.message)
+        pyperclip.copy(chatturn.message)
 
     @on(PromptInput.Submitted)
     def submit_question(self, event: events) -> None:

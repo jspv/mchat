@@ -1,5 +1,8 @@
 from typing import Any
 
+from dataclasses import dataclass
+
+
 from rich.console import RenderableType
 
 from rich.markdown import Markdown
@@ -7,6 +10,8 @@ from rich.markdown import Markdown
 from textual.widgets import Markdown as MarkdownWidget, Static
 from textual.containers import Vertical
 from textual.widget import Widget
+
+from textual.message import Message
 
 from textual.geometry import Size
 
@@ -48,6 +53,10 @@ class ChatTurn(Widget, can_focus=True):
     def on_mount(self) -> None:
         pass
 
+    def on_click(self) -> None:
+        self.log.debug("Clicked on ChatTurn")
+        self.post_message(ChatTurn.ChatTurnClicked(self))
+
     def get_content_width(self, container: Size, viewport: Size) -> int:
         # Naive approach. Can sometimes look strange, but works well enough.
         return min(len(self.message), container.width)
@@ -69,3 +78,9 @@ class ChatTurn(Widget, can_focus=True):
         self.app.log.debug(f"New message: {self.message}")
         self.md.update(self.markdown)
         # self.refresh(layout=True)
+
+    # textual message to be sent when clicked
+    @dataclass
+    class ChatTurnClicked(Message):
+        widget: Widget
+        """ The widget that was clicked."""
