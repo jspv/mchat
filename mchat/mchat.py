@@ -205,7 +205,7 @@ class ChatApp(App):
         temperature = override_temperature or self.llm_temperature
 
         # if the model name starts with ms_, use the AzureChatOpenAI model
-        if self.llm_model_name.startswith("ms_"):
+        if model_name.startswith("ms_"):
             llm = AzureChatOpenAI(
                 deployment_name=self.models[model_name]["deployment"],
                 openai_api_base=self.models[model_name]["base_url"],
@@ -216,7 +216,7 @@ class ChatApp(App):
                 callbacks=callbacks,
                 temperature=temperature,
             )
-        elif self.llm_model_name.startswith("oai_"):
+        elif model_name.startswith("oai_"):
             llm = ChatOpenAI(
                 model_name=self.models[model_name]["deployment"],
                 openai_api_key=self.models[model_name]["api_key"],
@@ -226,7 +226,7 @@ class ChatApp(App):
                 temperature=temperature,
             )
         else:
-            raise ValueError(f"Unknown model type {self.llm_model_name}")
+            raise ValueError(f"Unknown model type {model_name}")
 
         return llm
 
