@@ -1458,13 +1458,13 @@ doc = ["reno", "sphinx", "tornado (>=4.5)"]
 
 [[package]]
 name = "textual"
-version = "0.29.0"
+version = "0.40.0"
 description = "Modern Text User Interface framework"
 optional = false
 python-versions = ">=3.7,<4.0"
 files = [
-    {file = "textual-0.29.0-py3-none-any.whl", hash = "sha256:949fd8f16a412404ba785605dda1e2fab8166656e4d29d4177ec63cd73ba83d4"},
-    {file = "textual-0.29.0.tar.gz", hash = "sha256:7eb87b6d007dc9bd08e00e893b860ecb7a11ca815c8866db39fe17ec547e2fcf"},
+    {file = "textual-0.40.0-py3-none-any.whl", hash = "sha256:3e98f0c9c9a9361d3077c00e3fc5a708f927dd1ce45a1149eb1ba6945ce9d71c"},
+    {file = "textual-0.40.0.tar.gz", hash = "sha256:0fd014f9fab7f6d88167c82f90e115b118b3016b8597281d14c9257967f7812e"},
 ]
 
 [package.dependencies]
@@ -1473,22 +1473,25 @@ markdown-it-py = {version = ">=2.1.0", extras = ["linkify", "plugins"]}
 rich = ">=13.3.3"
 typing-extensions = ">=4.4.0,<5.0.0"
 
+[package.extras]
+syntax = ["tree-sitter (>=0.20.1,<0.21.0)", "tree_sitter_languages (>=1.7.0)"]
+
 [[package]]
 name = "textual-dev"
-version = "1.0.1"
+version = "1.2.1"
 description = "Development tools for working with Textual"
 optional = false
 python-versions = ">=3.7,<4.0"
 files = [
-    {file = "textual_dev-1.0.1-py3-none-any.whl", hash = "sha256:419fc426c120f04f89ab0cb1aa88f7873dd7cdb9c21618e709175c8eaff6b566"},
-    {file = "textual_dev-1.0.1.tar.gz", hash = "sha256:9f4c40655cbb56af7ee92805ef14fa24ae98ff8b0ae778c59de7222f1caa7281"},
+    {file = "textual_dev-1.2.1-py3-none-any.whl", hash = "sha256:a96ff43841cadf853dd689d68c2fc920a23ad71cfa9a33917ca53e96d1cc81f3"},
+    {file = "textual_dev-1.2.1.tar.gz", hash = "sha256:0bda11adfc541e0cc9e49bdf37a8b852281dc2387bb6ff3d01f40c7a3f841684"},
 ]
 
 [package.dependencies]
 aiohttp = ">=3.8.1"
 click = ">=8.1.2"
 msgpack = ">=1.0.3"
-textual = ">=0.29.0"
+textual = ">=0.33.0"
 typing-extensions = ">=4.4.0,<5.0.0"
 
 [[package]]
@@ -1718,4 +1721,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "d52a6713d419ff3de56c18c47e26d9bd371613a409c7c0ae525ce47c11e9f1ec"
+content-hash = "0aa6b6ecd48f894c0a663d93d8f442ebec228fc615a19de6ff0fc61be8ed9f0d"

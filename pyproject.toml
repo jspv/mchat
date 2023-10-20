@@ -13,10 +13,11 @@ openai = "^0.27.8"
 pyyaml = "^6.0"
 langchain = {extras = ["llm"], version = "^0.0.232"}
 tiktoken = "^0.4.0"
-textual = "^0.29.0"
+textual = "^0.40.0"
 rich = "^13.5.1"
 dynaconf = "^3.2.2"
 pyperclip = "^1.8.2"
+textual-dev = "^1.2.1"
 
 [tool.poetry.scripts]
 mchat = "mchat.mchat:main"

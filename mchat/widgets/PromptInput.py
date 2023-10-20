@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import ClassVar, Iterable
+from typing import Any, ClassVar, Coroutine, Iterable
 
 from rich.cells import cell_len, get_character_cell_size
 from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
@@ -10,7 +10,7 @@ from rich.highlighter import Highlighter
 from rich.segment import Segment
 from rich.text import Text
 
-from textual import events
+from textual import events, on
 from textual._segment_tools import line_crop
 from textual.binding import Binding, BindingType
 from textual.events import Blur, Focus, Mount
@@ -21,54 +21,93 @@ from textual.reactive import reactive
 from textual.suggester import Suggester, SuggestionReady
 from textual.validation import ValidationResult, Validator
 from textual.widget import Widget
-from textual.widgets import Label
+from textual.widgets import Label, TextArea
+
+
+class MultiLineInput(TextArea):
+    """A multi-line text input widget modified from the stock TextArea widget."""
+
+    starting_height = 3
+
+    DEFAULT_CSS = """
+    MultiLineInput {
+        height: 3;
+    }
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.show_line_numbers = False
+
+    def _on_key(self, event) -> None:
+        # if enter key was selected, submit the input
+        key = event.key
+
+        if key == "enter":
+            event.prevent_default()
+            self.post_message(self.Submitted(self, self.text))
+            # reset height of prompt area to starting height
+            self.styles.height = self.starting_height
+
+        # if shift-down was selected, insert a newline, don't bubble the key
+        elif key == "shift+down":
+            self.insert("\n")
+            event.prevent_default()
+
+    @on(TextArea.Changed)
+    def handle_changed(self, event: events) -> None:
+        """Check if the size of the TextArea has changed and refresh if necessary."""
+
+        # Grow to up to 8 lines before scrolling
+        height = self.text.count("\n")
+        if height <= 8:
+            self.styles.height = height + self.starting_height
+        else:
+            self.styles.height = 8 + self.starting_height
+
+    @dataclass
+    class Submitted(Message):
+        """Posted when the enter key is pressed within an `Input`.
+
+        Can be handled using `on_input_submitted` in a subclass of `Input` or in a
+        parent widget in the DOM.
+        """
+
+        input: MultiLineInput
+        """The `Input` widget that is being submitted."""
+        value: str
+        """The value of the `Input` being submitted."""
 
 
 class PromptInput(Widget):
     """A multi-line text input widget modified from the stock Input widget."""
 
-    BINDINGS: ClassVar[list[BindingType]] = [
-        Binding(
-            "ctrl+right_square_bracket",
-            "toggle_multiline",
-            "toggle multiline",
-            key_display="ctrl+]",
-            show=True,
-        )
-    ]
-
     def __init__(
         self,
-        single_line_prompt: str = "Press [b]Enter[/] to start chatting",
-        multi_line_prompt: str = "Press [b]ctrl-j[/] to start chatting",
+        prompt: str = "Press [b]Enter[/] to submit, [b]Shift-⬇[/] for a newline, "
+        + "and [b]Ctrl+C[/] to exit.",
         *args,
         **kwargs,
     ) -> None:
-        self.single_line_prompt = single_line_prompt
-        self.multi_line_prompt = multi_line_prompt
+        self.prompt = prompt
         super().__init__(*args, **kwargs)
-
-        self._multiline_mode = False
 
     def compose(self) -> None:
         self.instructions_label = Label(
-            self.single_line_prompt,
+            self.prompt,
             id="instructions",
         )
         yield self.instructions_label
         self.ml_input = MultiLineInput()
         yield self.ml_input
-        # with VerticalScroll():
-        #     self.ml_input = MultiLineInput()
-        #     yield self.ml_input
 
     @property
     def value(self):
-        return self.ml_input.value
+        return self.ml_input.text
 
     @value.setter
     def value(self, value):
-        self.ml_input.value = value
+        self.ml_input.load_text(value)
 
     @dataclass
     class Changed(Message):
@@ -92,98 +131,33 @@ class PromptInput(Widget):
         @property
         def control(self) -> MultiLineInput:
             """Alias for self.input."""
-            return self.input
+            return self.ml_input.text
 
     @dataclass
     class Submitted(Message):
-        """Posted when the enter key is pressed within an `Input`.
-
-        Can be handled using `on_input_submitted` in a subclass of `Input` or in a
-        parent widget in the DOM.
-        """
+        """Message to pass along the sumbit from MultiLineInput to"""
 
         input: MultiLineInput
-        """The `Input` widget that is being submitted."""
+        """The `Input` widget that was changed."""
         value: str
-        """The value of the `Input` being submitted."""
-        validation_result: ValidationResult | None = None
-        """The result of validating the value on submission, formed by combining the
-        results for each validator. This value will be None if no validation was
-        performed, which will be the case if no validators are supplied to the
-        corresponding `Input` widget."""
+        """The value that the input was changed to."""
 
-        @property
-        def control(self) -> MultiLineInput:
-            """Alias for self.input."""
-            return self.input
+    @on(MultiLineInput.Submitted)
+    def pass_submitted(self, event: events) -> None:
+        """An action to submit the current value of the TextArea."""
 
-    def action_toggle_multiline(self) -> None:
-        """An action to toggle multi-line mode."""
-        self._multiline_mode = not self._multiline_mode
-        self.ml_input._multiline_mode = self._multiline_mode
+        # stop bubbling up the DOM
+        event.stop()
+        self.post_message(PromptInput.Submitted(self, event.value))
 
-        if self._multiline_mode:
-            self.ml_input.border_title = "Multi-Line: On"
-            self.ml_input.remove_class("singeline-input")
-            self.ml_input.add_class("multiline-input")
-            self.ml_input.notify_style_update()
-            self.instructions_label.update(self.multi_line_prompt)
-        else:
-            self.ml_input.border_title = "Multi-Line: Off"
-            self.ml_input.remove_class("multiline-input")
-            self.ml_input.add_class("singeline-input")
-            self.ml_input.notify_style_update()
-            self.instructions_label.update(self.single_line_prompt)
+    @on(TextArea.Changed)
+    def pass_changed(self, event: events) -> None:
+        """Pass changed eventus up the DOM"""
+        event.stop()
+        self.post_message(PromptInput.Changed(self, event.control))
 
 
-class _InputRenderable:
-    """Render the input content."""
-
-    def __init__(self, input: MultiLineInput, cursor_visible: bool) -> None:
-        self.input = input
-        self.cursor_visible = cursor_visible
-
-    def __rich_console__(
-        self, console: "Console", options: "ConsoleOptions"
-    ) -> "RenderResult":
-        input = self.input
-        result = input._value
-        width = input.content_size.width
-
-        # Add the completion with a faded style.
-        value = input.value
-        value_length = len(value)
-        suggestion = input._suggestion
-        show_suggestion = len(suggestion) > value_length
-        if show_suggestion:
-            result += Text(
-                suggestion[value_length:],
-                input.get_component_rich_style("input--suggestion"),
-            )
-
-        if self.cursor_visible and input.has_focus:
-            if not show_suggestion and input._cursor_at_end:
-                result.pad_right(1)
-            cursor_style = input.get_component_rich_style("input--cursor")
-            cursor = input.cursor_position
-            result.stylize(cursor_style, cursor, cursor + 1)
-
-        segments = list(result.render(console))
-        line_length = Segment.get_line_length(segments)
-        if line_length < width:
-            segments = Segment.adjust_line_length(segments, width)
-            line_length = width
-
-        line = line_crop(
-            list(segments),
-            input.view_position,
-            input.view_position + width,
-            line_length,
-        )
-        yield from line
-
-
-class MultiLineInput(Widget, can_focus=True):
+class MultiLineInput_old(Widget, can_focus=True):
     """A multi-line text input widget modified from the stock Input widget."""
 
     BINDINGS: ClassVar[list[BindingType]] = [

@@ -85,23 +85,17 @@ VerticalScroll PromptInput {
 }
 
 /* MultiLineInput is the inputarea inside the scrollbar */
-MultiLineInput {
-    background: $primary-background;
+TextArea2 {
+    border: red;
     border-title-color: $secondary;
     border-title-background: $primary;
     border-title-align: right;
     border-title-style: bold;
+}
+
+MultiLineInput {
     border: $primary-background;
-}
-
-.singeline-input {
-    height: 1;
-    /* padding: 1; */
-}
-
-.multiline-input {
-    height: 8;
-    /* padding: 1; */
+    background: $primary-background;
 }
 
 #instructions {

@@ -10,7 +10,7 @@ from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
 
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, TextLog, Label, Markdown, Static
+from textual.widgets import Header, Footer, Input, Label, Markdown, Static
 from textual.containers import VerticalScroll, ScrollableContainer
 from textual.reactive import Reactive
 from textual.css.query import NoMatches
@@ -264,6 +264,9 @@ class ChatApp(App):
                 yield self.chat_container
                 yield PromptInput()
         yield Footer()
+
+    def on_mount(self) -> None:
+        self.title = "mchat - Multi-Model Chatbot"
 
     def on_ready(self) -> None:
         """Called  when the DOM is ready."""

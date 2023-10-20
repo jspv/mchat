@@ -15,6 +15,7 @@ ms_openai_gpt_35.proxy = ""
 #ms_openai_gpt_35.base_url = "https://openai.azure.com"
 
 default_model = "oai_gpt-3.5-turbo"
+#default_model = "ms_openai_gpt_35"
 default_temperature = 0.7
 default_persona = "default"
 
@@ -25,5 +26,5 @@ memory_model_max_tokens = 2048
 
 # in .secrets.toml
 # dynaconf_merge = true
-# openai_models_api_key = "oai_ai_api_key_goes_here"
+# oai_models_api_key = "oai_ai_api_key_goes_here"
 # ms_models_api_key = "ms_openai_api_key_goes_here"
