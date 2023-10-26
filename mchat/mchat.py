@@ -52,13 +52,13 @@ from langchain.chains.conversation.memory import (
     ConversationBufferMemory,
 )
 
+DEFAULT_PERSONA_FILE = "mchat/default_personas.json"
+EXTRA_PERSONA_FILE = "extra_personas.json"
 
 # Tracing settings for debugging
 # os.environ["LANGCHAIN_TRACING"] = "true"
 # os.environ["LANGCHAIN_HANDLER"] = "langchain"
 # os.environ["LANGCHAIN_SESSION"] = "callback_testing"  # This is session
-
-EXTRA_PERSONA_FILE = "personas.json"
 
 
 class StreamTokenCallback(AsyncCallbackHandler):
@@ -102,51 +102,14 @@ class ChatApp(App):
         # Initialize Conversation record used to store conversation details
         self.record = ConversationRecord()
 
-        # load personas
-        self.personas = {
-            "financial manager": {
-                "description": (
-                    "I am a skilled financial manager familiar with analysis and"
-                    " investing in equities, fixed income, alternative investments, and"
-                    " real estate. I am familiar with the use of derivatives and"
-                    " options to hedge risk and enhance returns. I am familiar with the"
-                    " use of leverage to enhance returns. I am also an excellent mentor"
-                    " and when I use financial jargon, I will always provide a clear"
-                    " definition for the jargon terms at the end of my response"
-                ),
-                "extra_context": [],
-            },
-            "default": {
-                "description": (
-                    "I am a highly intelligent question answering bot. If you ask me a"
-                    " question that is rooted in truth, I will give you the answer. If"
-                    " you ask me a question that is nonsense, trickery, or has no clear"
-                    " answer, I will respond with a nonsenseresponse."
-                ),
-                "extra_context": [],
-            },
-            "linux computer": {
-                "description": (
-                    "Act as a Linux terminal. I will type commands and you will reply"
-                    " with what the terminal should show. Only reply with the terminal"
-                    " output inside one unique code block, and nothing else. Do not"
-                    " write explanations. Do not type commands unless I instruct you to"
-                    " do so. When I need to tell you something that is not a command I"
-                    " will do so by putting text inside square brackets [like this]."
-                ),
-                "extra_context": [
-                    [
-                        "human",
-                        "hostname",
-                    ],
-                    ["ai", "```linux-terminal```"],
-                ],
-            },
-            "blank": {
-                "description": "",
-                "extra_context": [],
-            },
-        }
+        # load standard personas
+        if os.path.exists(DEFAULT_PERSONA_FILE):
+            import json
+
+            with open(DEFAULT_PERSONA_FILE) as f:
+                self.personas = json.load(f)
+        else:
+            raise ValueError("no default_personas.json file found")
 
         # if there is an EXTRA_PERSONA_FILE, load the personas from there
         if os.path.exists(EXTRA_PERSONA_FILE):

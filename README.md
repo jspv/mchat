@@ -8,8 +8,8 @@
 ## TODO
 - [x] Copy text to past buffer when clicking on the response
 - [x] Persona support
-- [ ] Support Multi-line prompts
-  - in progress, partial support, but scrolling and pasting isn't working yet
+- [x] Support Multi-line prompts
+- [ ] Enhance personas to provide initial instructions
 - [ ] History and reloadable sessions with local database storage
 - [ ] Support for selecting the use of mutiple models simultaneously
 - [ ] Support for functions 
@@ -59,7 +59,7 @@ Open the settings.toml file in a text editor to configure your application. Here
 
 ### Model Families
 
-- model_families: A list of model families available, the default shows "oai_models" (OpenAI Models) and "ms_models" (Microsoft Models).  
+- model_families: A list of model families available, the default shows "oai_models" (OpenAI Models) and "ms_models" (Microsoft Models).  A Model family is a group of models that use the same API access token.
   
 ### Model Lists
 
@@ -72,7 +72,7 @@ For each model family, list names of the models supported in that family, preced
 
 For each model, you can configure the following properties:
 
-- <model_name>.deployment: Specifies the deployment of the model, for OpenAI models, this is the OpenAI model name, for Microsoft models, this is the deployment name.
+- <model_name>.deployment: Specifies the deployment of the model, for OpenAI models, this is the actual OpenAI model name, for Microsoft models, this is the deployment name.
 - <model_name>.max_tokens: Specifies the maximum number of tokens for the model.
 
 ### Default Settings
@@ -82,9 +82,11 @@ For each model, you can configure the following properties:
 - default_persona: Specifies the default persona for generating text.
   
 ### Memory Model Configuration
-If you plan to use the ConversationSummaryBufferMemory, you can configure the following properties:
+mchat maintains memory of the current chat in order to retain context in long conversations.  When the retained memory exceeds the size the model supports, it will summarize the convseration to reduce size.  Since this can be called often for longer chats, it is recommended to use an inexpensive model.  
 
-- memory_model: Specifies the model to use for memory.
+You can configure the following properties:
+
+- memory_model: Specifies the specific model to use for memory, use one of the models you sepcified in your model lists
 - memory_model_temperature: Specifies the temperature for the memory model.
 - memory_model_max_tokens: Specifies the maximum tokens for the memory model.
   
@@ -102,13 +104,13 @@ Note that some configuration options, such as API keys, are meant to be kept in 
 
 ## Personas
 
-mchat comes with a default persona and two example personas *linux computer* and *financial manager*.  Additional personas can be added in a ```personas.json``` file using a similar pattern to the examples in the code.  When configuring personas, the ```extra_context``` list can allow you to respresent a multi-shot prompt.  
+mchat comes with a default persona and two example personas *linux computer* and *financial manager*.  Additional personas can be added in a ```extra_personas.json``` file at the top level (same level as this README) using a similar pattern to `mchat/default_personas.json` in the code.  When configuring personas, the ```extra_context``` list can allow you to respresent a multi-shot prompt, see the `linux computer` persona in `mchat/default_personas.json` as an example.
 
 ## Usage
 1. Run the application in poetry using the following command
    
    ```shell
-   poetry mchat
+   poetry run mchat
    ``````
 
 #### Alternative Usage

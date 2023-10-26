@@ -162,7 +162,7 @@ cython_debug/
 .vscode/
 *.private
 notes.ipynb
-personas.json
+extra_personas.json
 
 # Ignore dynaconf secret files
 .secrets.*
