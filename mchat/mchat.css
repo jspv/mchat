@@ -96,6 +96,7 @@ TextArea2 {
 MultiLineInput {
     border: $primary-background;
     background: $primary-background;
+    overflow-x: auto
 }
 
 #instructions {
