@@ -28,6 +28,7 @@ import pyperclip
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
 from mchat.widgets.PromptInput import PromptInput
+from mchat.widgets.History import History
 
 from mchat.Conversation import ConversationRecord, Turn
 
@@ -214,14 +215,12 @@ class ChatApp(App):
         )
         args, unknown = parser.parse_known_args()
 
-    class Foo(Markdown):
-        pass
-
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
         with Horizontal():
             yield DebugPane()
+            yield History()
             with Vertical():
                 self.chat_container = VerticalScroll(id="chat-container")
                 yield self.chat_container
@@ -364,6 +363,14 @@ class ChatApp(App):
         print(f"Persona Prompt is: {self.prompt}")
         self.memory.clear()
 
+        # Start a new session
+        try:
+            history = self.query_one(History)
+        except NoMatches:
+            pass
+        else:
+            history.in_session = False
+
     @work(exclusive=True)
     async def ask_question(self, question: str):
         """Ask a question to the AI and return the response.  Textual work function."""
@@ -380,7 +387,6 @@ class ChatApp(App):
                 self.post_message(
                     self.AddToChatMessage(role="assistant", message=f" - {persona}\n")
                 )
-            # self.post_message(self.EndChatTurn())
             return
 
         if question.startswith("persona"):
@@ -473,6 +479,7 @@ class ChatApp(App):
         debug_pane = self.query_one(DebugPane)
         debug_pane.update_entry("question", question)
 
+        # ask the question and wait for a response
         await self.conversation.arun(
             question,
             callbacks=[StreamTokenCallback(self)],
@@ -546,7 +553,7 @@ class ChatApp(App):
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
-        # add the turn to the record
+        # add the turn to the conversation record
         self.record.add_turn(
             persona=self.current_persona,
             prompt=self._current_question,
@@ -556,6 +563,11 @@ class ChatApp(App):
             temperature=self.llm_temperature,
             memory=self.memory.load_memory_variables({}),
         )
+
+        # Updte history widget
+        history = self.query_one(History)
+        await history.update(self.record)
+
         self.log.debug(self.record.log_last())
         # if we have a chatbox, close it.
         self.chatbox = None

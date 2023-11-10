@@ -118,6 +118,12 @@ DebugPane {
     display: block;
 }
 
+/* History Pane */
+History {
+    border: $primary-background;
+    width: 15%
+}
+
 /* Need to specify height for scroll to work */
 DebugPaneText {
     height: auto;
