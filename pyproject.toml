@@ -10,7 +10,7 @@ python = ">=3.10,<3.12"
 requests = "^2.28.1"
 openai = "^0.27.8"
 pyyaml = "^6.0"
-langchain = {extras = ["llm"], version = "^0.0.232"}
+langchain = "^0.0.338"
 tiktoken = "^0.4.0"
 textual = "^0.41.0"
 rich = "^13.5.1"
