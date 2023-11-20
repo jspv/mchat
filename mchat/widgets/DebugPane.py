@@ -36,6 +36,7 @@ class DebugPane(Widget):
         self._regenerate_from_dict = True
 
     def update_status(self) -> None:
+        """force debug pane to update values"""
         self._regenerate_from_dict = True
 
     def compose(self) -> None:
@@ -44,7 +45,6 @@ class DebugPane(Widget):
             yield self.debug_pane_text
 
     def render(self) -> None:
-        self.app.log("Rendering DebugPane")
         if self._regenerate_from_dict is True:
             self.debug_pane_text._entries = self._entries
             self.debug_pane_text.update()

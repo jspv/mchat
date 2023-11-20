@@ -119,9 +119,30 @@ DebugPane {
 }
 
 /* History Pane */
-History {
+HistoryContainer {
     border: $primary-background;
     width: 15%
+}
+
+HistorySessionBox {
+    /* border: $primary-background; */
+    /* background: $primary-background; */
+    padding: 0;
+    margin: 0;
+    color: $text;
+    width: 100%;
+    height: 5;
+    background: $panel;
+    border: none;
+    border-top: tall $panel-lighten-2;
+    border-bottom: tall $panel-darken-3;
+    text-align: center;
+    content-align: center middle;
+    text-style: bold;
+}
+
+HistorySessionBox.-active {
+    background: green;
 }
 
 /* Need to specify height for scroll to work */

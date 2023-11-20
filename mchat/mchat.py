@@ -7,6 +7,8 @@ from config import settings
 from langchain.callbacks import get_openai_callback
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
+from langchain.schema.messages import messages_to_dict, messages_from_dict
+from langchain.memory import ChatMessageHistory
 
 
 from textual.app import App, ComposeResult
@@ -28,7 +30,7 @@ import pyperclip
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
 from mchat.widgets.PromptInput import PromptInput
-from mchat.widgets.History import History
+from mchat.widgets.History import HistoryContainer
 
 from mchat.Conversation import ConversationRecord, Turn
 
@@ -194,17 +196,37 @@ class ChatApp(App):
 
         return llm
 
-    def _reinitialize_model(self):
-        """Initialize the language model."""
+    def _reinitialize_model(self, messages: List[str] = []):
+        """re-initialize the language model."""
         self.llm = self._initialize_model(
             self.llm_model_name, [StreamingStdOutCallbackHandler()]
         )
+
+        # if there are messages, we're restring a historical session, create new
+        # memory and reinitialize the conversation
+        if len(messages) > 0:
+            self.memory = ConversationSummaryBufferMemory(
+                llm=self.summary_llm,
+                max_token_limit=self.summary_max_tokens,
+                return_messages=True,
+                chat_memory=ChatMessageHistory(messages=messages_from_dict(messages)),
+            )
+            debug_pane = self.query_one(DebugPane)
+            debug_pane.update_entry(
+                "history", lambda: self.memory.load_memory_variables({})["history"]
+            )
+            debug_pane.update_entry(
+                "summary_buffer",
+                lambda: self.memory.moving_summary_buffer,
+            )
+
         self.conversation = ConversationChain(
             llm=self.llm,
             verbose=False,
             prompt=self.prompt,
             memory=self.memory,
         )
+
         debug_pane = self.query_one(DebugPane)
         debug_pane.update_status()
 
@@ -220,7 +242,9 @@ class ChatApp(App):
         yield Header()
         with Horizontal():
             yield DebugPane()
-            yield History()
+            yield HistoryContainer(
+                new_label="New Session", summary_model=self.summary_llm
+            )
             with Vertical():
                 self.chat_container = VerticalScroll(id="chat-container")
                 yield self.chat_container
@@ -229,6 +253,10 @@ class ChatApp(App):
 
     def on_mount(self) -> None:
         self.title = "mchat - Multi-Model Chatbot"
+
+        # set focus to the input box
+        input = self.query_one(PromptInput)
+        input.focus()
 
     def on_ready(self) -> None:
         """Called  when the DOM is ready."""
@@ -239,13 +267,14 @@ class ChatApp(App):
         debug_pane.add_entry("model", "Model", lambda: self.llm_model_name)
         debug_pane.add_entry("temp", "Temperature", lambda: self.llm_temperature)
         debug_pane.add_entry("persona", "Persona", lambda: self.current_persona)
-        debug_pane.add_entry("question", "Question", "")
+        debug_pane.add_entry("question", "Question", lambda: self._current_question)
         debug_pane.add_entry("prompt", "Prompt", lambda: self.app.conversation.prompt)
         debug_pane.add_entry(
             "history",
             "History",
             lambda: self.memory.load_memory_variables({})["history"],
         )
+        debug_pane.add_entry("memref", "Memory Reference", lambda: self.memory)
         debug_pane.add_entry(
             "summary_buffer",
             "Summary Buffer",
@@ -257,7 +286,6 @@ class ChatApp(App):
         chatturn = event.widget
 
         # copy contents of chatbox to clipboard
-        self.log.debug("Copy to clipboard: {}", chatturn.message)
         pyperclip.copy(chatturn.message)
 
     @on(PromptInput.Submitted)
@@ -269,12 +297,9 @@ class ChatApp(App):
         input.value = ""
 
         # ask_question is a work function, so it will be run in a separate thread
-        # then indicate that this is the end of this particular chat turn.
 
         self.ask_question(event.value)
-        debug_pane = self.query_one(DebugPane)
-        debug_pane.update_status()
-        self.post_message(self.EndChatTurn())
+        self.post_message(self.EndChatTurn(role="user"))
 
     def on_key(self, event: events.Key) -> None:
         """Write Key events to log."""
@@ -341,12 +366,7 @@ class ChatApp(App):
         return ChatPromptTemplate.from_messages(base)
 
     def set_persona(self, persona: str):
-        try:
-            debug_pane = self.query_one(DebugPane)
-        except NoMatches:
-            pass
-        else:
-            debug_pane.update_entry("persona", persona)
+        """Set the persona and reinitialize the conversation chain."""
 
         self.current_persona = persona
         if persona not in self.personas:
@@ -354,22 +374,13 @@ class ChatApp(App):
         # have to rebuild prompt and chain due to
         # https://github.com/hwchase17/langchain/issues/1800 - can't use templates
         self.prompt = self.build_prompt_template(persona=persona)
+
         self.conversation = ConversationChain(
             llm=self.llm,
             verbose=False,
             prompt=self.prompt,
             memory=self.memory,
         )
-        print(f"Persona Prompt is: {self.prompt}")
-        self.memory.clear()
-
-        # Start a new session
-        try:
-            history = self.query_one(History)
-        except NoMatches:
-            pass
-        else:
-            history.in_session = False
 
     @work(exclusive=True)
     async def ask_question(self, question: str):
@@ -377,6 +388,31 @@ class ChatApp(App):
 
         # scroll the chat container to the bottom
         self.scroll_to_end()
+
+        # if the question is 'new' or 'new session" start a new session
+        if question.lower() == "new" or question == "new session":
+            # if the session we're in is empty, don't start a new session
+            if len(self.record.turns) == 0:
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant",
+                        message="You're already in a new session",
+                    )
+                )
+                self.post_message(self.EndChatTurn(role="meta"))
+                return
+
+            # clear the chatboxes from the chat container
+            self.chat_container.remove_children()
+
+            # start a new history session
+            history = self.query_one(HistoryContainer)
+            await history.new_session()
+            self.memory.clear()
+            self.record = ConversationRecord()
+            self.set_persona(getattr(settings, "default_persona", "default"))
+            self.post_message(self.EndChatTurn(role="meta"))
+            return
 
         # if the question is either 'persona', or 'personas' show the available personas
         if question == "personas" or question == "persona":
@@ -387,6 +423,7 @@ class ChatApp(App):
                 self.post_message(
                     self.AddToChatMessage(role="assistant", message=f" - {persona}\n")
                 )
+            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         if question.startswith("persona"):
@@ -404,10 +441,10 @@ class ChatApp(App):
                     role="assistant", message=f"Setting persona to '{persona}'"
                 )
             )
+            self._current_question = ""
             self.set_persona(persona=persona)
-            debug_pane = self.query_one(DebugPane)
-            debug_pane.update_entry("persona", persona)
-            self.post_message(self.EndChatTurn())
+
+            self.post_message(self.EndChatTurn(role="assistant"))
             return
 
         # if the question is 'models', or 'model', show available models
@@ -419,23 +456,28 @@ class ChatApp(App):
                 self.post_message(
                     self.AddToChatMessage(role="assistant", message=f" - {model}\n")
                 )
-            self.post_message(self.EndChatTurn())
+            self._current_question = ""
+            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question starts with 'model', set the model
         if question.startswith("model"):
             # get the model
-            self.llm_model_name = question.split(maxsplit=1)[1].strip()
+            llm_model_name = question.split(maxsplit=1)[1].strip()
 
             # check to see if the model is valid
-            if self.llm_model_name not in self.available_models:
+            if llm_model_name not in self.available_models:
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",
                         message=f"Model '{self.llm_model_name}' not found",
                     )
                 )
+                self._current_question = ""
+                self.post_message(self.EndChatTurn(role="meta"))
                 return
+
+            self.llm_model_name = llm_model_name
 
             self.post_message(
                 self.AddToChatMessage(
@@ -443,10 +485,9 @@ class ChatApp(App):
                     message=f"Model set to {self.llm_model_name}",
                 )
             )
+            self._current_question = question
             self._reinitialize_model()
-            debug_pane = self.query_one(DebugPane)
-            debug_pane.update_entry("model", self.llm_model_name)
-            self.post_message(self.EndChatTurn())
+            self.post_message(self.EndChatTurn(role="assistant"))
             return
 
         # if the question starts with 'summary', summarize the conversation
@@ -454,8 +495,9 @@ class ChatApp(App):
             # get the summary
             summary = str(self.memory.load_memory_variables({}))
             # post the summary
+            self._current_question = ""
             self.post_message(self.AddToChatMessage(role="assistant", message=summary))
-            self.post_message(self.EndChatTurn())
+            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question starts with 'temperature', set the temperature
@@ -469,15 +511,12 @@ class ChatApp(App):
                     message=f"Temperature set to {self.llm_temperature}",
                 )
             )
+            self._current_question = question
             self._reinitialize_model()
-            debug_pane = self.query_one(DebugPane)
-            debug_pane.update_entry("temp", self.llm_temperature)
-            self.post_message(self.EndChatTurn())
+            self.post_message(self.EndChatTurn(role="assistant"))
             return
 
         self._current_question = question
-        debug_pane = self.query_one(DebugPane)
-        debug_pane.update_entry("question", question)
 
         # ask the question and wait for a response
         await self.conversation.arun(
@@ -487,7 +526,7 @@ class ChatApp(App):
 
         # Done with response; clear the chatbox
         self.scroll_to_end()
-        self.post_message(self.EndChatTurn())
+        self.post_message(self.EndChatTurn(role="assistant"))
 
     def run(self, *args, **kwargs):
         """Run the app."""
@@ -524,9 +563,6 @@ class ChatApp(App):
             self.message = message
             super().__init__()
 
-    class EndChatTurn(Message):
-        pass
-
     @on(AddToChatMessage)
     async def add_to_chat_message(self, chat_token: AddToChatMessage) -> None:
         chunk = chat_token.message
@@ -550,27 +586,65 @@ class ChatApp(App):
         if scroll_y in range(max_scroll_y - 3, max_scroll_y + 1):
             self.chat_container.scroll_end(animate=False)
 
+    class EndChatTurn(Message):
+        def __init__(self, role: str) -> None:
+            assert role in ["user", "assistant", "meta"]
+            self.role = role
+            super().__init__()
+
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
-        # add the turn to the conversation record
-        self.record.add_turn(
-            persona=self.current_persona,
-            prompt=self._current_question,
-            response=self.chatbox.message,
-            summary=self.memory.moving_summary_buffer,
-            model=self.llm_model_name,
-            temperature=self.llm_temperature,
-            memory=self.memory.load_memory_variables({}),
-        )
+        # If we hae a response, add the turn to the conversation record
+        if event.role == "assistant":
+            self.record.add_turn(
+                persona=self.current_persona,
+                prompt=self._current_question,
+                response=self.chatbox.message,
+                summary=self.memory.moving_summary_buffer,
+                model=self.llm_model_name,
+                temperature=self.llm_temperature,
+                memory_messages=messages_to_dict(self.memory.chat_memory.messages),
+            )
 
-        # Updte history widget
-        history = self.query_one(History)
-        await history.update(self.record)
+            history = self.query_one(HistoryContainer)
+            await history.update(self.record)
+
+        # Update debug pane
+        debug_pane = self.query_one(DebugPane)
+        debug_pane.update_status()
 
         self.log.debug(self.record.log_last())
+
         # if we have a chatbox, close it.
         self.chatbox = None
+
+    @on(HistoryContainer.HistorySessionClicked)
+    def _on_history_session_clicked(
+        self, event: HistoryContainer.HistorySessionClicked
+    ) -> None:
+        """Restore the previous session"""
+
+        if self.record == event.record:
+            return
+        self.record = event.record
+        self.current_persona = self.record.turns[-1].persona
+        self.llm_model_name = self.record.turns[-1].model
+        self.llm_temperature = self.record.turns[-1].temperature
+        self._current_question = self.record.turns[-1].prompt
+        self._reinitialize_model(messages=self.record.turns[-1].memory_messages)
+
+        # clear the chatboxes from the chat container
+        self.chat_container.remove_children()
+
+        # load the chat history from the record
+        for turn in self.record.turns:
+            self.post_message(self.AddToChatMessage(role="user", message=turn.prompt))
+            self.post_message(self.EndChatTurn(role="meta"))
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message=turn.response)
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
 
 
 def main():
