@@ -635,6 +635,14 @@ class ChatApp(App):
             return
 
         self.record = event.record
+
+        # if the record is none, it is an empty session, so clear the chatbox
+        if event.record is None:
+            self._current_question = ""
+            self.memory.clear()
+            self.chat_container.remove_children()
+            return
+
         # if there are no turns in the record, it's a new session
         if len(self.record.turns) == 0:
             self._current_question = ""

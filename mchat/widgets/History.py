@@ -247,10 +247,12 @@ class HistoryContainer(VerticalScroll):
                 await event.clicked_box.remove()
                 return
         if event.action == "copy":
+            new_record = event.clicked_box.record.copy()
             await self._add_session(
-                event.clicked_box.record.copy(),
+                new_record,
                 label=event.clicked_box.summary_box.renderable,
             )
+            self.current.record = new_record
             self.post_message(
                 HistoryContainer.HistorySessionClicked(self.current.record)
             )
