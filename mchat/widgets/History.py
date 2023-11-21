@@ -1,33 +1,27 @@
 from textual.widget import Widget
 from textual.widgets import Static
-from textual.widgets import Button
-from textual.reactive import Reactive
 from textual.message import Message
-from textual.reactive import reactive
 from textual.containers import VerticalScroll, Vertical, Horizontal
-from textual.pad import HorizontalPad
 from textual import events
 from textual.events import Click
 from textual import on
 from dataclasses import dataclass
 from rich.console import RenderableType
-from rich.text import Text, TextType
 from rich.text import Text
 
-from langchain import PromptTemplate
-from langchain import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
 from langchain.chat_models.base import BaseChatModel
 
-from typing import Callable
-from rich.padding import Padding
-from mchat.Conversation import ConversationRecord, Turn
+from mchat.Conversation import ConversationRecord
 
 
-""" 
-Design: 
-History Widget is a vertical scroll container that displays a list of Chat
-History sesisons represented by Clickable Static Widgets. 
-
+"""
+Design:
+HistoryContainer Widget is a vertical scroll container that displays a list of Chat
+History sesisons represented by HistorySessionBox widgets.  Each HistorySessionBox
+widget represents a single ConversationRecord.  The HistorySessionBox widget is
+composed of a summary box, a copy button, and delete button.
 """
 
 
@@ -38,11 +32,13 @@ class HistorySessionBox(Widget, can_focus=True):
         self,
         record: ConversationRecord | None = None,
         new_label: str = "",
+        label: str = "",
         *args,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.new_label = new_label
+        self.label = label
         self.record = record
 
     def compose(self) -> None:
@@ -59,13 +55,18 @@ class HistorySessionBox(Widget, can_focus=True):
                 yield DeleteButton(id="history-session-box-delete")
             self.summary_box = SummaryBox()
             if self.record is None or len(self.record.turns) == 0:
-                self.summary_box.update(Text(self.new_label))
+                self.summary_box.update(self.new_label)
                 self.copy_button.visible = False
             else:
-                self.summary_box.update(Text(self.record.turns[-1].prompt))
+                if len(self.label) > 0:
+                    self.summary_box.update(self.label)
+                else:
+                    self.summary_box.update(self.record.turns[-1].prompt)
             yield self.summary_box
 
-    def update(self, record: ConversationRecord, summary: str = "") -> None:
+    async def update_box(
+        self, record: ConversationRecord, summary: str | RenderableType = ""
+    ) -> None:
         """Update the HistorySessionBox with a new ConversationRecord."""
 
         self.record = record
@@ -74,7 +75,8 @@ class HistorySessionBox(Widget, can_focus=True):
         self.copy_button.visible = True
 
         if len(summary) > 0:
-            self.summary_box.update(Text(summary))
+            summary = Text(summary) if isinstance(summary, str) else summary
+            self.summary_box.update(summary)
             return
 
         if len(record.turns) == 0:
@@ -94,7 +96,7 @@ class HistorySessionBox(Widget, can_focus=True):
         pass
 
     @on(ChildClicked)
-    def update_click_and_bubble(self, event: events) -> None:
+    def update_click_and_bubble_up(self, event: events) -> None:
         """update the widget with self and bubble up the DOM"""
         event.stop()
         self.post_message(HistorySessionBox.Clicked(self, event.action))
@@ -160,15 +162,17 @@ class HistoryContainer(VerticalScroll):
         self, record: ConversationRecord | None = None, label: str = ""
     ) -> None:
         """Add a new session to the HistoryContainer."""
-        label = label if len(label) > 0 else self.new_label
-        self.current = HistorySessionBox(record=record, new_label=label)
+        label = label if len(label) > 0 else ""
+        self.current = HistorySessionBox(
+            record=record, new_label=self.new_label, label=label
+        )
         self.current.add_class("-active")
         # remove the .-active class from all other boxes
         for child in self.children:
             child.remove_class("-active")
-        self.mount(self.current)
+        await self.mount(self.current)
 
-    async def update(self, record: ConversationRecord):
+    async def update_conversation(self, record: ConversationRecord):
         # Format the last 10 turns of the conversation into a single string
         # to be summarized.  If there are fewer than five turns, summarize
         # the whole conversation.
@@ -179,7 +183,7 @@ class HistoryContainer(VerticalScroll):
         # Summarize the conversation
         summary = self.llm_chain.run(conversation)
 
-        self.current.update(record, summary)
+        await self.current.update_box(record, summary)
 
     async def new_session(self) -> None:
         await self._add_session()
@@ -243,11 +247,8 @@ class HistoryContainer(VerticalScroll):
                 await event.clicked_box.remove()
                 return
         if event.action == "copy":
-            new = event.clicked_box.record.copy()
-            self.app.log.debug(f"orig record: {id(event.clicked_box.record)}")
-            self.app.log.debug(f"new record: {id(new)}")
             await self._add_session(
-                new,
+                event.clicked_box.record.copy(),
                 label=event.clicked_box.summary_box.renderable,
             )
             self.post_message(

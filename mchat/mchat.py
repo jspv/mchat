@@ -136,7 +136,7 @@ class ChatApp(App):
                     self.models[model] = {"api_key": api_key}
         self.available_models = self.models.keys()
 
-        # Initialize the language model
+        # Initialize the main language model
         self.llm_model_name = settings.default_model
         self.llm_temperature = settings.default_temperature
         self.llm = self._initialize_model(
@@ -148,7 +148,9 @@ class ChatApp(App):
         self.summary_temperature = settings.memory_model_temperature
         self.summary_max_tokens = settings.memory_model_max_tokens
         self.summary_llm = self._initialize_model(
-            self.summary_model_name, override_temperature=self.summary_temperature
+            self.summary_model_name,
+            override_temperature=self.summary_temperature,
+            streaming=False,
         )
 
         self.memory = ConversationSummaryBufferMemory(
@@ -164,6 +166,7 @@ class ChatApp(App):
         model_name: str,
         callbacks: List[BaseCallbackHandler] = [],
         override_temperature: Optional[float] = None,
+        streaming: bool = True,
     ):
         """Initialize the language model."""
         self.log(f"Initializing model {model_name}")
@@ -608,7 +611,7 @@ class ChatApp(App):
             )
 
             history = self.query_one(HistoryContainer)
-            await history.update(self.record)
+            await history.update_conversation(self.record)
 
         # Update debug pane
         debug_pane = self.query_one(DebugPane)
