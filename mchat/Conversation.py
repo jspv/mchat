@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from copy import deepcopy
 
 
 # object to store conversation details
@@ -22,6 +23,10 @@ class ConversationRecord(object):
                 datetime=datetime.now().time(),
             )
         )
+
+    def copy(self):
+        new_record = deepcopy(self)
+        return new_record
 
     def log_all(self):
         out = ""

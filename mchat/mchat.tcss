@@ -125,24 +125,54 @@ HistoryContainer {
 }
 
 HistorySessionBox {
-    /* border: $primary-background; */
-    /* background: $primary-background; */
+    /* border: green; */
+    background: $panel;
     padding: 0;
     margin: 0;
     color: $text;
     width: 100%;
-    height: 5;
-    background: $panel;
-    border: none;
-    border-top: tall $panel-lighten-2;
+    height: 6;
+    /* box-sizing: content-box; */
+    /* align-vertical: top; */
+    /* background: $panel; */
+    /* border: blue; */
+    /* border-top: tall $panel-lighten-2; */
     border-bottom: tall $panel-darken-3;
-    text-align: center;
-    content-align: center middle;
-    text-style: bold;
+    /* text-align: center; */
+    /* content-align: center middle; */
+    /* text-style: bold; */
+}
+
+SummaryBox {
+    /* border: red; */
+    /* height: 6; */
 }
 
 HistorySessionBox.-active {
-    background: green;
+    background: $primary-background;
+}
+
+HistorySessionBox Horizontal {
+    height: 1;
+    /* border: green; */
+    box-sizing: content-box;
+}
+
+
+#history-session-box-label {
+    width: 5;
+}
+
+#history-session-box-spacer {
+    width: 1fr;
+}
+
+#history-session-box-copy {
+    width: 3;
+}
+
+#history-session-box-delete {
+    width: 3;
 }
 
 /* Need to specify height for scroll to work */

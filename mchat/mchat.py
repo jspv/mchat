@@ -81,7 +81,7 @@ class StreamTokenCallback(AsyncCallbackHandler):
 
 
 class ChatApp(App):
-    CSS_PATH = "mchat.css"
+    CSS_PATH = "mchat.tcss"
     BINDINGS = [
         ("ctrl+r", "toggle_dark", "Toggle dark mode"),
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
@@ -625,14 +625,23 @@ class ChatApp(App):
     ) -> None:
         """Restore the previous session"""
 
+        event.stop()
+
+        # if the record is the same as the current record, do nothing
         if self.record == event.record:
             return
+
         self.record = event.record
-        self.current_persona = self.record.turns[-1].persona
-        self.llm_model_name = self.record.turns[-1].model
-        self.llm_temperature = self.record.turns[-1].temperature
-        self._current_question = self.record.turns[-1].prompt
-        self._reinitialize_model(messages=self.record.turns[-1].memory_messages)
+        # if there are no turns in the record, it's a new session
+        if len(self.record.turns) == 0:
+            self._current_question = ""
+            self.memory.clear()
+        else:
+            self.current_persona = self.record.turns[-1].persona
+            self.llm_model_name = self.record.turns[-1].model
+            self.llm_temperature = self.record.turns[-1].temperature
+            self._current_question = self.record.turns[-1].prompt
+            self._reinitialize_model(messages=self.record.turns[-1].memory_messages)
 
         # clear the chatboxes from the chat container
         self.chat_container.remove_children()

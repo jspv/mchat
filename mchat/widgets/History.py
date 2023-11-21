@@ -4,7 +4,7 @@ from textual.widgets import Button
 from textual.reactive import Reactive
 from textual.message import Message
 from textual.reactive import reactive
-from textual.containers import VerticalScroll
+from textual.containers import VerticalScroll, Vertical, Horizontal
 from textual.pad import HorizontalPad
 from textual import events
 from textual.events import Click
@@ -31,11 +31,8 @@ History sesisons represented by Clickable Static Widgets.
 """
 
 
-class HistorySessionBox(Static, can_focus=True):
-    """A Static Widget that displays a single Chat History session."""
-
-    """The text label that appears within the button."""
-    label: reactive[TextType] = reactive[TextType]("")
+class HistorySessionBox(Widget, can_focus=True):
+    """A Widget that displays a single Chat History session."""
 
     def __init__(
         self,
@@ -45,55 +42,102 @@ class HistorySessionBox(Static, can_focus=True):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-
+        self.new_label = new_label
         self.record = record
-        self.current = True
-        if self.record is None or len(self.record.turns) == 0:
-            self.label = Text(new_label)
-        else:
-            self.label = Text(record.turns[-1].prompt)
+
+    def compose(self) -> None:
+        with Vertical():
+            with Horizontal():
+                yield Static(
+                    Text("..."),
+                    id="history-session-box-label",
+                    classes="history-session-box-top",
+                )
+                yield Static("", id="history-session-box-spacer")
+                self.copy_button = CopyButton(id="history-session-box-copy")
+                yield self.copy_button
+                yield DeleteButton(id="history-session-box-delete")
+            self.summary_box = SummaryBox()
+            if self.record is None or len(self.record.turns) == 0:
+                self.summary_box.update(Text(self.new_label))
+                self.copy_button.visible = False
+            else:
+                self.summary_box.update(Text(self.record.turns[-1].prompt))
+            yield self.summary_box
 
     def update(self, record: ConversationRecord, summary: str = "") -> None:
         """Update the HistorySessionBox with a new ConversationRecord."""
 
         self.record = record
+
+        # enable the copy button if it is disabled
+        self.copy_button.visible = True
+
         if len(summary) > 0:
-            self.label = Text(summary)
+            self.summary_box.update(Text(summary))
             return
 
         if len(record.turns) == 0:
             return
-        self.label = Text(record.turns[-1].prompt)
+        self.summary_box.update(Text(record.turns[-1].prompt))
 
-    def render(self) -> RenderableType:
-        assert isinstance(self.label, Text)
-        label = self.label.copy()
-        label.stylize(self.rich_style)
-        return HorizontalPad(
-            label,
-            1,
-            1,
-            self.rich_style,
-            self._get_rich_justify() or "left",
-        )
+    def on_click(self, event: Click) -> None:
+        event.stop()
+        self.post_message(self.Clicked(self, "load"))
 
     @dataclass
     class Clicked(Message):
         clicked_box: Widget
+        action: str
 
-    def _on_click(self, event: Click) -> None:
+    class ChildClicked(Clicked):
+        pass
+
+    @on(ChildClicked)
+    def update_click_and_bubble(self, event: events) -> None:
+        """update the widget with self and bubble up the DOM"""
         event.stop()
-        self.post_message(self.Clicked(self))
+        self.post_message(HistorySessionBox.Clicked(self, event.action))
+
+
+class DeleteButton(Static):
+    """A button that deletes the session when clicked."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(":x:", *args, **kwargs)
+
+    def on_click(self, event: Click) -> None:
+        event.stop()
+        self.app.log.debug("Delete button clicked")
+        self.post_message(HistorySessionBox.ChildClicked(self, "delete"))
+
+
+class CopyButton(Static):
+    """A button that deletes the session when clicked."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(":clipboard:", *args, **kwargs)
+
+    def on_click(self, event: Click) -> None:
+        event.stop()
+        self.app.log.debug("Copy button clicked")
+        self.post_message(HistorySessionBox.ChildClicked(self, "copy"))
+
+
+class SummaryBox(Static):
+    """A summary of the current chat."""
+
+    pass
 
 
 class HistoryContainer(VerticalScroll):
     """A vertical scroll container that displays a list of Chat History sessions."""
 
     prompt_template = """
-    Here is a chat conversation in the form of 'user: message' and
-    'bot: response' pairs. You will describe the conversation in 66 characters or
-    less in a way that describes the essence of the conversation, not the acutal 
-    conversation details: {conversation}
+    Here is list of chat submissions in the form of 'user: message'. Give me no more 
+    than 10 words which will be used to remind the user of the conversation.  Your reply
+    should be no more than 10 words and at most 66 total characters.
+    Chat submissions: {conversation}
     """
 
     def __init__(
@@ -112,9 +156,12 @@ class HistoryContainer(VerticalScroll):
         self.current.add_class("-active")
         yield self.current
 
-    async def _add_session(self, record: ConversationRecord | None = None) -> None:
+    async def _add_session(
+        self, record: ConversationRecord | None = None, label: str = ""
+    ) -> None:
         """Add a new session to the HistoryContainer."""
-        self.current = HistorySessionBox(record=record, new_label=self.new_label)
+        label = label if len(label) > 0 else self.new_label
+        self.current = HistorySessionBox(record=record, new_label=label)
         self.current.add_class("-active")
         # remove the .-active class from all other boxes
         for child in self.children:
@@ -128,9 +175,7 @@ class HistoryContainer(VerticalScroll):
         turns = record.turns
         if len(turns) > 10:
             turns = turns[-10:]
-        conversation = "\n".join(
-            [f"user:{turn.prompt}, bot:{turn.response}" for turn in turns]
-        )
+        conversation = "\n".join([f"user:{turn.prompt}" for turn in turns])
         # Summarize the conversation
         summary = self.llm_chain.run(conversation)
 
@@ -139,16 +184,75 @@ class HistoryContainer(VerticalScroll):
     async def new_session(self) -> None:
         await self._add_session()
 
+    @property
+    def session_count(self) -> int:
+        # query the dom for all HistorySessionBox widgets
+        sessions = self.query(HistorySessionBox)
+        return len(sessions)
+
     @on(HistorySessionBox.Clicked)
-    def history_session_box_clicked(self, event: events) -> None:
-        # set the clicked box to current and set the .-active class
-        self.current = event.clicked_box
-        self.current.add_class("-active")
-        # remove the .-active class from all other boxes
-        for child in self.children:
-            if child != self.current:
-                child.remove_class("-active")
-        self.post_message(HistoryContainer.HistorySessionClicked(self.current.record))
+    async def history_session_box_clicked(self, event: events) -> None:
+        assert event.action in ["load", "delete", "copy"]
+        if event.action == "load":
+            # set the clicked box to current and set the .-active class
+            self.current = event.clicked_box
+            self.current.add_class("-active")
+            # remove the .-active class from all other boxes
+            for child in self.children:
+                if child != self.current:
+                    child.remove_class("-active")
+            self.post_message(
+                HistoryContainer.HistorySessionClicked(self.current.record)
+            )
+            return
+        if event.action == "delete":
+            # if the clicked box is the only box, reset the current box
+            if self.session_count == 1:
+                await event.clicked_box.remove()
+                await self.new_session()
+                self.current.record = ConversationRecord()
+                # let the app know so it can clear the chat pane
+                self.post_message(
+                    HistoryContainer.HistorySessionClicked(self.current.record)
+                )
+            elif event.clicked_box == self.current:
+                # if the clicked box is the current session, set the current session
+                # to the previous session or next session if there is no previous
+                # session
+                current = list(self.query(HistorySessionBox)).index(self.current)
+                if current == 0:
+                    # if the current session is the first session, set the second
+                    # session to current
+                    self.current = list(self.query(HistorySessionBox))[1]
+                else:
+                    # if the current session is not the first session, set the
+                    # previous session to current
+                    self.current = list(self.query(HistorySessionBox))[current - 1]
+
+                # remove the clicked session
+                await event.clicked_box.remove()
+                # set the .-active class
+                self.current.add_class("-active")
+                # let the app know so it can update the chat pane
+                self.post_message(
+                    HistoryContainer.HistorySessionClicked(self.current.record)
+                )
+                return
+            else:
+                # if the clicked box is not the current session, just remove it
+                await event.clicked_box.remove()
+                return
+        if event.action == "copy":
+            new = event.clicked_box.record.copy()
+            self.app.log.debug(f"orig record: {id(event.clicked_box.record)}")
+            self.app.log.debug(f"new record: {id(new)}")
+            await self._add_session(
+                new,
+                label=event.clicked_box.summary_box.renderable,
+            )
+            self.post_message(
+                HistoryContainer.HistorySessionClicked(self.current.record)
+            )
 
     class HistorySessionClicked(Message):
         def __init__(self, record: ConversationRecord) -> None:
