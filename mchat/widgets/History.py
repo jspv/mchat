@@ -13,7 +13,11 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.chat_models.base import BaseChatModel
 
+from retry.api import retry
+
 from mchat.Conversation import ConversationRecord
+
+import apsw.bestpractice
 
 
 """
@@ -74,14 +78,19 @@ class HistorySessionBox(Widget, can_focus=True):
         # enable the copy button if it is disabled
         self.copy_button.visible = True
 
+        # update the summary box with the new summary
         if len(summary) > 0:
             summary = Text(summary) if isinstance(summary, str) else summary
             self.summary_box.update(summary)
+            self.record.summary = str(summary)
             return
 
         if len(record.turns) == 0:
             return
+
+        # no summary was provided, so update the summary box with the last prompt
         self.summary_box.update(Text(record.turns[-1].prompt))
+        self.record.summary = str(record.turns[-1].prompt)
 
     def on_click(self, event: Click) -> None:
         event.stop()
@@ -153,37 +162,106 @@ class HistoryContainer(VerticalScroll):
         )
         self.llm_chain = LLMChain(prompt=self.prompt, llm=summary_model)
 
+        # Open or create the database
+        self.conneciton = self._initialize_db()
+
+        # If there are records in the database, load them
+        cursor = self.conneciton.cursor()
+        rows = cursor.execute("SELECT id FROM Conversations").fetchall()
+        if len(rows) > 0:
+            for row in rows:
+                record = self._read_conversation_from_db(self.conneciton, row[0])
+                self._add_previous_session(record)
+
     def compose(self) -> None:
-        self.current = HistorySessionBox(new_label=self.new_label)
-        self.current.add_class("-active")
-        yield self.current
+        self.active_session = HistorySessionBox(new_label=self.new_label)
+        self.active_session.add_class("-active")
+        yield self.active_session
+
+    # Initialize the database and return a connection object
+    def _initialize_db(self) -> apsw.Connection:
+        # SQLite3 stuff
+        apsw.bestpractice.apply(apsw.bestpractice.recommended)
+
+        # Default will create the database if it doesn't exist
+        connection = apsw.Connection("db.db")
+        cursor = connection.cursor()
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS Conversations (id TEXT PRIMARY KEY, data TEXT)"
+        )
+        return connection
+
+    def _write_conversation_to_db(self, conn, conversation):
+        cursor = conn.cursor()
+        serialized_conversation = conversation.to_json()
+        cursor.execute(
+            "INSERT OR REPLACE INTO Conversations (id, data) VALUES (?, ?)",
+            (
+                conversation.id,
+                serialized_conversation,
+            ),
+        )
+
+    def _read_conversation_from_db(self, conn, id) -> ConversationRecord:
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT data FROM Conversations WHERE id=?", (id,)
+        ).fetchone()
+        conversation = ConversationRecord.from_json(row[0])
+        return conversation
+
+    def _delete_conversation_from_db(self, conn, record: ConversationRecord):
+        cursor = conn.cursor()
+        id = record.id
+        cursor.execute("DELETE FROM Conversations WHERE id=?", (id,))
+
+    @(retry(tries=3, delay=1))
+    async def get_summary_blurb(self, conversation: str) -> str:
+        """Summarize a conversation using the LLMChain model."""
+        summary = await self.llm_chain.arun(conversation)
+        return summary
+
+    def _add_previous_session(self, record: ConversationRecord) -> None:
+        """Add a new session to the HistoryContainer."""
+        self.active_session = HistorySessionBox(
+            record=record, new_label=self.new_label, label=record.summary
+        )
+        self.mount(self.active_session)
 
     async def _add_session(
         self, record: ConversationRecord | None = None, label: str = ""
     ) -> None:
-        """Add a new session to the HistoryContainer."""
+        """Add a new session to the HistoryContainer and set it as active"""
         label = label if len(label) > 0 else ""
-        self.current = HistorySessionBox(
+
+        # Create a new session
+        self.active_session = HistorySessionBox(
             record=record, new_label=self.new_label, label=label
         )
-        self.current.add_class("-active")
+
+        # Activate the new session and deactivate all others
+        self.active_session.add_class("-active")
         # remove the .-active class from all other boxes
         for child in self.children:
             child.remove_class("-active")
-        await self.mount(self.current)
+        await self.mount(self.active_session)
 
     async def update_conversation(self, record: ConversationRecord):
         # Format the last 10 turns of the conversation into a single string
         # to be summarized.  If there are fewer than five turns, summarize
         # the whole conversation.
+
+        # update the database
+        self._write_conversation_to_db(self.conneciton, record)
+
         turns = record.turns
         if len(turns) > 10:
             turns = turns[-10:]
         conversation = "\n".join([f"user:{turn.prompt}" for turn in turns])
-        # Summarize the conversation
-        summary = self.llm_chain.run(conversation)
 
-        await self.current.update_box(record, summary)
+        # Summarize the conversation
+        summary = await self.get_summary_blurb(conversation)
+        await self.active_session.update_box(record, summary)
 
     async def new_session(self) -> None:
         await self._add_session()
@@ -199,14 +277,14 @@ class HistoryContainer(VerticalScroll):
         assert event.action in ["load", "delete", "copy"]
         if event.action == "load":
             # set the clicked box to current and set the .-active class
-            self.current = event.clicked_box
-            self.current.add_class("-active")
+            self.active_session = event.clicked_box
+            self.active_session.add_class("-active")
             # remove the .-active class from all other boxes
             for child in self.children:
-                if child != self.current:
+                if child != self.active_session:
                     child.remove_class("-active")
             self.post_message(
-                HistoryContainer.HistorySessionClicked(self.current.record)
+                HistoryContainer.HistorySessionClicked(self.active_session.record)
             )
             return
         if event.action == "delete":
@@ -214,36 +292,47 @@ class HistoryContainer(VerticalScroll):
             if self.session_count == 1:
                 await event.clicked_box.remove()
                 await self.new_session()
-                self.current.record = ConversationRecord()
+                self.active_session.record = ConversationRecord()
                 # let the app know so it can clear the chat pane
                 self.post_message(
-                    HistoryContainer.HistorySessionClicked(self.current.record)
+                    HistoryContainer.HistorySessionClicked(self.active_session.record)
                 )
-            elif event.clicked_box == self.current:
+            elif event.clicked_box == self.active_session:
                 # if the clicked box is the current session, set the current session
                 # to the previous session or next session if there is no previous
                 # session
-                current = list(self.query(HistorySessionBox)).index(self.current)
+                current = list(self.query(HistorySessionBox)).index(self.active_session)
                 if current == 0:
                     # if the current session is the first session, set the second
                     # session to current
-                    self.current = list(self.query(HistorySessionBox))[1]
+                    self.active_session = list(self.query(HistorySessionBox))[1]
                 else:
                     # if the current session is not the first session, set the
                     # previous session to current
-                    self.current = list(self.query(HistorySessionBox))[current - 1]
+                    self.active_session = list(self.query(HistorySessionBox))[
+                        current - 1
+                    ]
 
                 # remove the clicked session
+                # remove the session from the database
+                if event.clicked_box.record is not None:
+                    self._delete_conversation_from_db(
+                        self.conneciton, event.clicked_box.record
+                    )
                 await event.clicked_box.remove()
                 # set the .-active class
-                self.current.add_class("-active")
+                self.active_session.add_class("-active")
                 # let the app know so it can update the chat pane
                 self.post_message(
-                    HistoryContainer.HistorySessionClicked(self.current.record)
+                    HistoryContainer.HistorySessionClicked(self.active_session.record)
                 )
                 return
             else:
                 # if the clicked box is not the current session, just remove it
+                # remove the session from the database
+                self._delete_conversation_from_db(
+                    self.conneciton, event.clicked_box.record
+                )
                 await event.clicked_box.remove()
                 return
         if event.action == "copy":
@@ -252,9 +341,9 @@ class HistoryContainer(VerticalScroll):
                 new_record,
                 label=event.clicked_box.summary_box.renderable,
             )
-            self.current.record = new_record
+            self.active_session.record = new_record
             self.post_message(
-                HistoryContainer.HistorySessionClicked(self.current.record)
+                HistoryContainer.HistorySessionClicked(self.active_session.record)
             )
 
     class HistorySessionClicked(Message):

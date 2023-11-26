@@ -10,6 +10,8 @@ from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
 from langchain.schema.messages import messages_to_dict, messages_from_dict
 from langchain.memory import ChatMessageHistory
 
+from retry import retry
+
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, Label, Markdown, Static
@@ -77,7 +79,7 @@ class StreamTokenCallback(AsyncCallbackHandler):
         self.app.post_message(
             self.app.AddToChatMessage(role="assistant", message=token)
         )
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
 
 
 class ChatApp(App):
@@ -385,6 +387,13 @@ class ChatApp(App):
             memory=self.memory,
         )
 
+    # Add addtional retry logic to the ask_question function
+    @retry(tries=3, delay=1)
+    async def _ask_question_to_llm(
+        self, question: str, callbacks: List[BaseCallbackHandler]
+    ):
+        await self.conversation.arun(question, callbacks=callbacks)
+
     @work(exclusive=True)
     async def ask_question(self, question: str):
         """Ask a question to the AI and return the response.  Textual work function."""
@@ -522,10 +531,7 @@ class ChatApp(App):
         self._current_question = question
 
         # ask the question and wait for a response
-        await self.conversation.arun(
-            question,
-            callbacks=[StreamTokenCallback(self)],
-        )
+        await self._ask_question_to_llm(question, [StreamTokenCallback(self)])
 
         # Done with response; clear the chatbox
         self.scroll_to_end()
@@ -616,8 +622,6 @@ class ChatApp(App):
         # Update debug pane
         debug_pane = self.query_one(DebugPane)
         debug_pane.update_status()
-
-        self.log.debug(self.record.log_last())
 
         # if we have a chatbox, close it.
         self.chatbox = None

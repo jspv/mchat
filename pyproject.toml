@@ -17,6 +17,8 @@ rich = "^13.5.1"
 dynaconf = "^3.2.2"
 pyperclip = "^1.8.2"
 urllib3 = "^2.1.0"
+apsw = "^3.44.0.0"
+retry = "^0.9.2"
 
 [tool.poetry.scripts]
 mchat = "mchat.mchat:main"
