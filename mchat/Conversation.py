@@ -14,19 +14,19 @@ class Turn(object):
     summary: str
     temperature: float
     memory_messages: list = field(default_factory=list)
-    datetime: datetime = field(default_factory=lambda: datetime.now())
+    timestamp: datetime = field(default_factory=lambda: datetime.now())
 
     def to_json(self):
         data = asdict(self)
-        # convert datetime to string, including date
-        data["datetime"] = data["datetime"].isoformat()
+        # convert timestamp to string, including date
+        data["timestamp"] = data["timestamp"].isoformat()
         return json.dumps(data)
 
     @staticmethod
     def from_json(json_string):
         data = json.loads(json_string)
-        # convert datetime string to datetime object
-        data["datetime"] = datetime.fromisoformat(data["datetime"])
+        # convert timestamp string to datetime object
+        data["timestamp"] = datetime.fromisoformat(data["timestamp"])
         return Turn(**data)
 
 
