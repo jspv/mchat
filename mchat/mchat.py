@@ -34,6 +34,8 @@ from mchat.widgets.DebugPane import DebugPane
 from mchat.widgets.PromptInput import PromptInput
 from mchat.widgets.History import HistoryContainer
 
+from mchat.dalle_image_generator import DallEAPIWrapper
+
 from mchat.Conversation import ConversationRecord, Turn
 
 from textual.containers import Vertical, Horizontal
@@ -124,23 +126,35 @@ class ChatApp(App):
                 extra_personas = json.load(f)
             self.personas.update(extra_personas)
 
-        # load the models from settings - name: {key: value,...}
-        self.models = {}
-        for model_family in settings.model_families:
+        # load the llm models from settings - name: {key: value,...}
+        self.llm_models = {}
+        for model_family in settings.llm_model_families:
             for model in getattr(settings, model_family):
                 api_key = getattr(settings, f"{model_family}_api_key")
                 # see if the model has any parameters
-                print(model)
                 if getattr(settings, model, None) is not None:
-                    self.models[model] = dict(getattr(settings, model))
-                    self.models[model]["api_key"] = api_key
+                    self.llm_models[model] = dict(getattr(settings, model))
+                    self.llm_models[model]["api_key"] = api_key
                 else:
-                    self.models[model] = {"api_key": api_key}
-        self.available_models = self.models.keys()
+                    self.llm_models[model] = {"api_key": api_key}
+        self.available_llm_models = self.llm_models.keys()
+
+        # load the image models from settings - name: {key: value,...}
+        self.image_models = {}
+        for model_family in settings.image_model_families:
+            for model in getattr(settings, model_family):
+                api_key = getattr(settings, f"{model_family}_api_key")
+                # see if the model has any parameters
+                if getattr(settings, model, None) is not None:
+                    self.image_models[model] = dict(getattr(settings, model))
+                    self.image_models[model]["api_key"] = api_key
+                else:
+                    self.image_models[model] = {"api_key": api_key}
+        self.available_image_models = self.image_models.keys()
 
         # Initialize the main language model
-        self.llm_model_name = settings.default_model
-        self.llm_temperature = settings.default_temperature
+        self.llm_model_name = settings.default_llm_model
+        self.llm_temperature = settings.default_llm_temperature
         self.llm = self._initialize_model(
             self.llm_model_name, [StreamingStdOutCallbackHandler()]
         )
@@ -154,6 +168,12 @@ class ChatApp(App):
             override_temperature=self.summary_temperature,
             streaming=False,
         )
+
+        # Initialize the image model
+        self.default_image_model = settings.get("default_image_model", None)
+        if self.default_image_model is not None:
+            self.image_model_name = self.default_image_model
+            self.image_model = self._initialize_image_model()
 
         self.memory = ConversationSummaryBufferMemory(
             llm=self.summary_llm,
@@ -170,29 +190,29 @@ class ChatApp(App):
         override_temperature: Optional[float] = None,
         streaming: bool = True,
     ):
-        """Initialize the language model."""
-        self.log(f"Initializing model {model_name}")
+        """Initialize the large language model."""
+        self.log(f"Initializing llm model {model_name}")
 
         temperature = override_temperature or self.llm_temperature
 
         # if the model name starts with ms_, use the AzureChatOpenAI model
         if model_name.startswith("ms_"):
             llm = AzureChatOpenAI(
-                deployment_name=self.models[model_name]["deployment"],
-                openai_api_base=self.models[model_name]["base_url"],
-                openai_api_version=self.models[model_name]["api"],
-                openai_api_key=self.models[model_name]["api_key"],
-                verbose=True,
-                streaming=True,
+                deployment_name=self.llm_models[model_name]["deployment"],
+                openai_api_base=self.llm_models[model_name]["base_url"],
+                openai_api_version=self.llm_models[model_name]["api"],
+                openai_api_key=self.llm_models[model_name]["api_key"],
+                verbose=False,
+                streaming=streaming,
                 callbacks=callbacks,
                 temperature=temperature,
             )
         elif model_name.startswith("oai_"):
             llm = ChatOpenAI(
-                model_name=self.models[model_name]["deployment"],
-                openai_api_key=self.models[model_name]["api_key"],
+                model_name=self.llm_models[model_name]["deployment"],
+                openai_api_key=self.llm_models[model_name]["api_key"],
                 verbose=False,
-                streaming=True,
+                streaming=streaming,
                 callbacks=callbacks,
                 temperature=temperature,
             )
@@ -201,7 +221,18 @@ class ChatApp(App):
 
         return llm
 
-    def _reinitialize_model(self, messages: List[str] = []):
+    def _initialize_image_model(self):
+        """initialize the image model."""
+        image_model = DallEAPIWrapper(
+            openai_api_key=self.image_models[self.image_model_name]["api_key"],
+            num_images=self.image_models[self.image_model_name]["num_images"],
+            size=self.image_models[self.image_model_name]["size"],
+            model=self.image_models[self.image_model_name]["model"],
+            quality=self.image_models[self.image_model_name]["quality"],
+        )
+        return image_model
+
+    def _reinitialize_llm_model(self, messages: List[str] = []):
         """re-initialize the language model."""
         self.llm = self._initialize_model(
             self.llm_model_name, [StreamingStdOutCallbackHandler()]
@@ -464,7 +495,7 @@ class ChatApp(App):
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="Available Models:\n")
             )
-            for model in self.available_models:
+            for model in self.available_llm_models:
                 self.post_message(
                     self.AddToChatMessage(role="assistant", message=f" - {model}\n")
                 )
@@ -478,7 +509,7 @@ class ChatApp(App):
             llm_model_name = question.split(maxsplit=1)[1].strip()
 
             # check to see if the model is valid
-            if llm_model_name not in self.available_models:
+            if llm_model_name not in self.available_llm_models:
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",
@@ -498,7 +529,7 @@ class ChatApp(App):
                 )
             )
             self._current_question = question
-            self._reinitialize_model()
+            self._reinitialize_llm_model()
             self.post_message(self.EndChatTurn(role="assistant"))
             return
 
@@ -524,7 +555,23 @@ class ChatApp(App):
                 )
             )
             self._current_question = question
-            self._reinitialize_model()
+            self._reinitialize_llm_model()
+            self.post_message(self.EndChatTurn(role="assistant"))
+            return
+
+        # hack - testing
+        # if question starts with 'dall-e ' pass to Dall-e
+        if question.startswith("dall-e "):
+            question = question[7:]
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="Generating...")
+            )
+            self._current_question = question
+            self.post_message(self.EndChatTurn(role="meta"))
+            out = await self.image_model.arun(question)
+            self.post_message(self.AddToChatMessage(role="assistant", message=out))
+            # out = "[image](" + out + ")"
+            # self.post_message(self.AddToChatMessage(role="assistant", message=out))
             self.post_message(self.EndChatTurn(role="assistant"))
             return
 
@@ -604,7 +651,7 @@ class ChatApp(App):
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
-        # If we hae a response, add the turn to the conversation record
+        # If we hae a    response, add the turn to the conversation record
         if event.role == "assistant":
             self.record.add_turn(
                 persona=self.current_persona,
@@ -656,7 +703,7 @@ class ChatApp(App):
             self.llm_model_name = self.record.turns[-1].model
             self.llm_temperature = self.record.turns[-1].temperature
             self._current_question = self.record.turns[-1].prompt
-            self._reinitialize_model(messages=self.record.turns[-1].memory_messages)
+            self._reinitialize_llm_model(messages=self.record.turns[-1].memory_messages)
 
         # clear the chatboxes from the chat container
         self.chat_container.remove_children()

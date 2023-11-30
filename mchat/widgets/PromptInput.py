@@ -6,12 +6,13 @@ from textual import events, on
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Label, TextArea
+from textual.css.scalar import Scalar
 
 
 class MultiLineInput(TextArea):
     """A multi-line text input widget modified from the stock TextArea widget."""
 
-    starting_height = 3
+    starting_height = Scalar.from_number(3)
 
     DEFAULT_CSS = """
     MultiLineInput {
@@ -22,6 +23,8 @@ class MultiLineInput(TextArea):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.show_line_numbers = False
+        self.scrollpad = 0
+        """ Extra padding to add to the height of the TextArea to show scrollbar"""
 
     def _on_key(self, event) -> None:
         # if enter key was selected, submit the input
@@ -47,21 +50,28 @@ class MultiLineInput(TextArea):
 
         # get current visbile width of the TextArea
         width = self.size.width
-        # get the current virtual size
+        # get the current virtual size, add room for scrollbar if needed
         virtual_width = self.virtual_size.width
         if virtual_width > width:
-            self.insert("\n")
-            event.prevent_default()
-
-        self.log.debug(f"TextArea Width: {width}")
-        self.log.debug(f"TextArea Virtual Width: {virtual_width}")
+            # Add room for horizontal scrollbar
+            if self.styles.height.cells == self.starting_height.cells:
+                self.scrollpad = 1
+        else:
+            self.scrollpad = 0
 
         # Grow to up to 8 lines before scrolling
         height = self.text.count("\n")
         if height <= 8:
-            self.styles.height = height + self.starting_height
+            self.styles.height = Scalar.from_number(
+                height + self.starting_height.cells + self.scrollpad
+            )
         else:
-            self.styles.height = 8 + self.starting_height
+            self.styles.height = Scalar.from_number(8 + self.starting_height.cells)
+
+        # self.log.debug(f"TextArea Width: {width}")
+        # self.log.debug(f"TextArea Virtual Width: {virtual_width}")
+        # self.log.debug(f"TextArea Height: {self.styles.height}")
+        # self.log.debug(f"TextArea Starting Height: {self.starting_height}")
 
     @dataclass
     class Submitted(Message):
