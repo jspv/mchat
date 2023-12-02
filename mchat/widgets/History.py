@@ -6,18 +6,20 @@ from textual import events
 from textual.events import Click
 from textual import on
 from dataclasses import dataclass
-from rich.console import RenderableType
 from rich.text import Text
 
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.chat_models.base import BaseChatModel
 
+from datetime import datetime, timedelta
+
 from retry.api import retry
 
 from mchat.Conversation import ConversationRecord
 
 import apsw.bestpractice
+import pytz
 
 
 """
@@ -34,7 +36,7 @@ class HistorySessionBox(Widget, can_focus=True):
 
     def __init__(
         self,
-        record: ConversationRecord | None = None,
+        record: ConversationRecord,
         new_label: str = "",
         label: str = "",
         *args,
@@ -48,8 +50,12 @@ class HistorySessionBox(Widget, can_focus=True):
     def compose(self) -> None:
         with Vertical():
             with Horizontal():
+                if len(self.record.turns) > 0:
+                    session_box_label = self.get_relative_date(self.record.created)
+                else:
+                    session_box_label = "..."
                 yield Static(
-                    Text("..."),
+                    Text(session_box_label),
                     id="history-session-box-label",
                     classes="history-session-box-top",
                 )
@@ -58,7 +64,8 @@ class HistorySessionBox(Widget, can_focus=True):
                 yield self.copy_button
                 yield DeleteButton(id="history-session-box-delete")
             self.summary_box = SummaryBox()
-            if self.record is None or len(self.record.turns) == 0:
+            self.update_box(self.record)
+            if len(self.record.turns) == 0:
                 self.summary_box.update(self.new_label)
                 self.copy_button.visible = False
             else:
@@ -68,9 +75,7 @@ class HistorySessionBox(Widget, can_focus=True):
                     self.summary_box.update(self.record.turns[-1].prompt)
             yield self.summary_box
 
-    async def update_box(
-        self, record: ConversationRecord, summary: str | RenderableType = ""
-    ) -> None:
+    async def update_box(self, record: ConversationRecord) -> None:
         """Update the HistorySessionBox with a new ConversationRecord."""
 
         self.record = record
@@ -79,10 +84,14 @@ class HistorySessionBox(Widget, can_focus=True):
         self.copy_button.visible = True
 
         # update the summary box with the new summary
-        if len(summary) > 0:
-            summary = Text(summary) if isinstance(summary, str) else summary
+        if len(record.summary) > 0:
+            summary = Text(record.summary)
             self.summary_box.update(summary)
-            self.record.summary = str(summary)
+
+            # update the label
+            label_widget = self.query_one("#history-session-box-label")
+            label_widget.update(Text(self.get_relative_date(record.created)))
+
             return
 
         if len(record.turns) == 0:
@@ -91,6 +100,19 @@ class HistorySessionBox(Widget, can_focus=True):
         # no summary was provided, so update the summary box with the last prompt
         self.summary_box.update(Text(record.turns[-1].prompt))
         self.record.summary = str(record.turns[-1].prompt)
+
+    @staticmethod
+    def get_relative_date(timestamp):
+        current_time = datetime.now(pytz.utc)
+        timestamp = timestamp.replace(tzinfo=pytz.utc)
+        if timestamp.date() == current_time.date():
+            return "today" + "-" + timestamp.strftime("%H:%M")
+        elif timestamp.date() == current_time.date() - timedelta(1):
+            return "yesterday" + "-" + timestamp.strftime("%H:%M")
+        elif (current_time - timestamp).days < 7:
+            return timestamp.strftime("%A") + "-" + timestamp.strftime("%H:%M")
+        else:
+            return timestamp.strftime("%m-%d") + "-" + timestamp.strftime("%H:%M")
 
     def on_click(self, event: Click) -> None:
         event.stop()
@@ -160,7 +182,7 @@ class HistoryContainer(VerticalScroll):
         self.prompt = PromptTemplate(
             template=self.prompt_template, input_variables=["conversation"]
         )
-        self.llm_chain = LLMChain(prompt=self.prompt, llm=summary_model)
+        self.llm_short_summary_chain = LLMChain(prompt=self.prompt, llm=summary_model)
 
         # Open or create the database
         self.conneciton = self._initialize_db()
@@ -168,15 +190,32 @@ class HistoryContainer(VerticalScroll):
         # If there are records in the database, load them
         cursor = self.conneciton.cursor()
         rows = cursor.execute("SELECT id FROM Conversations").fetchall()
+        records = []
         if len(rows) > 0:
             for row in rows:
-                record = self._read_conversation_from_db(self.conneciton, row[0])
+                records.append(self._read_conversation_from_db(self.conneciton, row[0]))
+
+            # sort the records by timestamp of first turn
+            records.sort(key=lambda x: x.created)
+            for record in records:
                 self._add_previous_session(record)
 
+        # scroll to the bottom
+        self.scroll_to_end()
+
     def compose(self) -> None:
-        self.active_session = HistorySessionBox(new_label=self.new_label)
+        # create a new session with an empty conversation record
+        record = ConversationRecord()
+        self.active_session = HistorySessionBox(record=record, new_label=self.new_label)
         self.active_session.add_class("-active")
         yield self.active_session
+
+    def scroll_to_end(self) -> None:
+        self.scroll_end(animate=False)
+
+    @property
+    def active_record(self) -> ConversationRecord:
+        return self.active_session.record
 
     # Initialize the database and return a connection object
     def _initialize_db(self) -> apsw.Connection:
@@ -218,7 +257,7 @@ class HistoryContainer(VerticalScroll):
     @(retry(tries=3, delay=1))
     async def get_summary_blurb(self, conversation: str) -> str:
         """Summarize a conversation using the LLMChain model."""
-        summary = await self.llm_chain.arun(conversation)
+        summary = await self.llm_short_summary_chain.arun(conversation)
         return summary
 
     def _add_previous_session(self, record: ConversationRecord) -> None:
@@ -230,11 +269,15 @@ class HistoryContainer(VerticalScroll):
 
     async def _add_session(
         self, record: ConversationRecord | None = None, label: str = ""
-    ) -> None:
+    ) -> HistorySessionBox:
         """Add a new session to the HistoryContainer and set it as active"""
         label = label if len(label) > 0 else ""
 
-        # Create a new session
+        # if no record is provided, create a new record
+        if record is None:
+            record = ConversationRecord()
+
+        # Attach the record to a new session
         self.active_session = HistorySessionBox(
             record=record, new_label=self.new_label, label=label
         )
@@ -247,24 +290,25 @@ class HistoryContainer(VerticalScroll):
         await self.mount(self.active_session)
 
     async def update_conversation(self, record: ConversationRecord):
-        # Format the last 10 turns of the conversation into a single string
-        # to be summarized.  If there are fewer than five turns, summarize
-        # the whole conversation.
-
-        # update the database
-        self._write_conversation_to_db(self.conneciton, record)
+        """Update the active session with a new ConversationRecord."""
 
         turns = record.turns
         if len(turns) > 10:
             turns = turns[-10:]
         conversation = "\n".join([f"user:{turn.prompt}" for turn in turns])
 
-        # Summarize the conversation
-        summary = await self.get_summary_blurb(conversation)
-        await self.active_session.update_box(record, summary)
+        # Summarize the conversation and update the widget
+        record.summary = await self.get_summary_blurb(conversation)
+        await self.active_session.update_box(record)
 
-    async def new_session(self) -> None:
+        # update the database
+        self._write_conversation_to_db(self.conneciton, record)
+
+    async def new_session(self) -> ConversationRecord:
+        """Add a new empty session to the HistoryContainer and set it as active"""
         await self._add_session()
+        self.scroll_to_end()
+        return self.active_record
 
     @property
     def session_count(self) -> int:
@@ -341,7 +385,7 @@ class HistoryContainer(VerticalScroll):
                 new_record,
                 label=event.clicked_box.summary_box.renderable,
             )
-            self.active_session.record = new_record
+            self.scroll_to_end()
             self.post_message(
                 HistoryContainer.HistorySessionClicked(self.active_session.record)
             )

@@ -36,7 +36,7 @@ from mchat.widgets.History import HistoryContainer
 
 from mchat.dalle_image_generator import DallEAPIWrapper
 
-from mchat.Conversation import ConversationRecord, Turn
+from mchat.Conversation import ConversationRecord
 
 from textual.containers import Vertical, Horizontal
 
@@ -106,9 +106,6 @@ class ChatApp(App):
         # current active widget for storing a conversation turn
         self.chatbox = None
 
-        # Initialize Conversation record used to store conversation details
-        self.record = ConversationRecord()
-
         # load standard personas
         if os.path.exists(DEFAULT_PERSONA_FILE):
             import json
@@ -152,9 +149,11 @@ class ChatApp(App):
                     self.image_models[model] = {"api_key": api_key}
         self.available_image_models = self.image_models.keys()
 
-        # Initialize the main language model
-        self.llm_model_name = settings.default_llm_model
-        self.llm_temperature = settings.default_llm_temperature
+        # Initialize the default language model
+        self.default_llm_model = settings.default_llm_model
+        self.default_llm_temperature = settings.default_llm_temperature
+        self.llm_model_name = self.default_llm_model
+        self.llm_temperature = self.default_llm_temperature
         self.llm = self._initialize_model(
             self.llm_model_name, [StreamingStdOutCallbackHandler()]
         )
@@ -169,19 +168,21 @@ class ChatApp(App):
             streaming=False,
         )
 
-        # Initialize the image model
-        self.default_image_model = settings.get("default_image_model", None)
-        if self.default_image_model is not None:
-            self.image_model_name = self.default_image_model
-            self.image_model = self._initialize_image_model()
-
         self.memory = ConversationSummaryBufferMemory(
             llm=self.summary_llm,
             max_token_limit=self.summary_max_tokens,
             return_messages=True,
         )
 
-        self.set_persona(getattr(settings, "default_persona", "default"))
+        # Initialize the image model
+        self.default_image_model = settings.get("default_image_model", None)
+        if self.default_image_model is not None:
+            self.image_model_name = self.default_image_model
+            self.image_model = self._initialize_image_model()
+
+        # Initialize the conversation chain
+        self.default_persona = getattr(settings, "default_persona", "default")
+        self.set_persona(self.default_persona)
 
     def _initialize_model(
         self,
@@ -293,6 +294,9 @@ class ChatApp(App):
         # set focus to the input box
         input = self.query_one(PromptInput)
         input.focus()
+
+        # Load the active conversation record
+        self.record = self.query_one(HistoryContainer).active_record
 
     def on_ready(self) -> None:
         """Called  when the DOM is ready."""
@@ -432,6 +436,27 @@ class ChatApp(App):
         # scroll the chat container to the bottom
         self.scroll_to_end()
 
+        # if the question is 'help', show the help message
+        if question.lower() == "help":
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=(
+                        "Available Commands:\n"
+                        " - new: start a new session\n"
+                        " - personas: show available personas\n"
+                        " - persona <persona>: set the persona\n"
+                        " - models: show available models\n"
+                        " - model <model>: set the model\n"
+                        " - temperature <temperature>: set the temperature\n"
+                        " - summary: summarize the conversation\n"
+                        " - dall-e <prompt>: generate an image from the prompt\n"
+                    ),
+                )
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
+            return
+
         # if the question is 'new' or 'new session" start a new session
         if question.lower() == "new" or question == "new session":
             # if the session we're in is empty, don't start a new session
@@ -450,10 +475,12 @@ class ChatApp(App):
 
             # start a new history session
             history = self.query_one(HistoryContainer)
-            await history.new_session()
+            self.record = await history.new_session()
             self.memory.clear()
-            self.record = ConversationRecord()
-            self.set_persona(getattr(settings, "default_persona", "default"))
+            self.set_persona(self.default_persona)
+            self.llm_model_name = self.default_llm_model
+            self.llm_temperature = self.default_llm_temperature
+            self._reinitialize_llm_model()
             self.post_message(self.EndChatTurn(role="meta"))
             return
 
@@ -478,6 +505,7 @@ class ChatApp(App):
                         role="assistant", message=f"Persona '{persona}' not found"
                     )
                 )
+                self.post_message(self.EndChatTurn(role="meta"))
                 return
             self.post_message(
                 self.AddToChatMessage(
@@ -486,7 +514,6 @@ class ChatApp(App):
             )
             self._current_question = ""
             self.set_persona(persona=persona)
-
             self.post_message(self.EndChatTurn(role="assistant"))
             return
 
@@ -559,22 +586,20 @@ class ChatApp(App):
             self.post_message(self.EndChatTurn(role="assistant"))
             return
 
-        # hack - testing
         # if question starts with 'dall-e ' pass to Dall-e
         if question.startswith("dall-e "):
             question = question[7:]
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="Generating...")
             )
-            self._current_question = question
             self.post_message(self.EndChatTurn(role="meta"))
+            self._current_question = question
             out = await self.image_model.arun(question)
             self.post_message(self.AddToChatMessage(role="assistant", message=out))
-            # out = "[image](" + out + ")"
-            # self.post_message(self.AddToChatMessage(role="assistant", message=out))
             self.post_message(self.EndChatTurn(role="assistant"))
             return
 
+        # Just a normal question at this point
         self._current_question = question
 
         # ask the question and wait for a response
@@ -686,13 +711,6 @@ class ChatApp(App):
             return
 
         self.record = event.record
-
-        # if the record is none, it is an empty session, so clear the chatbox
-        if event.record is None:
-            self._current_question = ""
-            self.memory.clear()
-            self.chat_container.remove_children()
-            return
 
         # if there are no turns in the record, it's a new session
         if len(self.record.turns) == 0:

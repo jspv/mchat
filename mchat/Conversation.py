@@ -1,4 +1,7 @@
-from dataclasses import dataclass, asdict, field
+from __future__ import annotations
+
+from dataclasses import dataclass, asdict, field, InitVar
+from typing import ClassVar
 from datetime import datetime
 from copy import deepcopy
 import json
@@ -34,6 +37,7 @@ class Turn(object):
 @dataclass
 class ConversationRecord(object):
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created: datetime = field(default_factory=lambda: datetime.now())
     summary: str = ""
     turns: list = field(default_factory=list[Turn])
 
@@ -43,6 +47,7 @@ class ConversationRecord(object):
     def copy(self):
         new_record = deepcopy(self)
         new_record.id = str(uuid.uuid4())
+        new_record.created = datetime.now()
         return new_record
 
     def to_json(self) -> str:
@@ -50,10 +55,12 @@ class ConversationRecord(object):
         out["id"] = self.id
         out["summary"] = self.summary
         out["turns"] = [turn.to_json() for turn in self.turns]
+        out["created"] = self.created.isoformat()
         return json.dumps(out)
 
     @staticmethod
     def from_json(json_string):
         in_json = json.loads(json_string)
         in_json["turns"] = [Turn.from_json(turn) for turn in in_json["turns"]]
+        in_json["created"] = datetime.fromisoformat(in_json["created"])
         return ConversationRecord(**in_json)

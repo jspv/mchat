@@ -160,7 +160,7 @@ HistorySessionBox Horizontal {
 
 
 #history-session-box-label {
-    width: 5;
+    width: 15;
 }
 
 #history-session-box-spacer {
