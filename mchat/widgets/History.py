@@ -167,7 +167,7 @@ class HistoryContainer(VerticalScroll):
     """A vertical scroll container that displays a list of Chat History sessions."""
 
     prompt_template = """
-    Here is list of chat submissions in the form of 'user: message'. Give me no more 
+    Here is list of chat submissions in the form of 'user: message'. Give me no more
     than 10 words which will be used to remind the user of the conversation.  Your reply
     should be no more than 10 words and at most 66 total characters.
     Chat submissions: {conversation}
@@ -200,7 +200,6 @@ class HistoryContainer(VerticalScroll):
             for record in records:
                 self._add_previous_session(record)
 
-        # scroll to the bottom
         self.scroll_to_end()
 
     def compose(self) -> None:

@@ -28,7 +28,7 @@ ChatTurn .user {
 ChatTurn .assistant {
     align: left middle;
     /* margin-top: 1; */
-    /* margin-bottom: 1; */
+    # margin-bottom: 0;
     height: auto;
     /* border: green; */
 }
@@ -38,6 +38,7 @@ ChatTurn .assistant {
     /* color: $primary; */
     /* background: $boost; */
     color: $text;
+    padding: 0 0 -1 0;
     background: $primary-background;
     border: $primary-background;
     height: auto;
@@ -46,11 +47,12 @@ ChatTurn .assistant {
 
 .assistant #chatturn-markdown {
     border: $secondary-background-darken-1;
+    padding: 1 1 0 1;
+    border: none;
     color: $text;
     height: auto;
     background: $secondary-background-darken-1;
     width: 70%;
-    margin: 1;
 }
 
 #chat-container {

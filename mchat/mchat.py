@@ -1,50 +1,19 @@
 import os
 import asyncio
 import argparse
+import pyperclip
 
 from config import settings
+
+from typing import Any, Dict, List, Optional
 
 from langchain.callbacks import get_openai_callback
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
 from langchain.schema.messages import messages_to_dict, messages_from_dict
 from langchain.memory import ChatMessageHistory
-
-from retry import retry
-
-
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, Label, Markdown, Static
-from textual.containers import VerticalScroll, ScrollableContainer
-from textual.reactive import Reactive
-from textual.css.query import NoMatches
-from textual import on, log, work
-from textual import events
-from textual.message import Message
-from textual.worker import Worker
-from rich.table import Table
-from rich.syntax import Syntax
-from rich.text import Text
-from rich.align import Align
-from rich.pretty import pprint
-import pyperclip
-
-from mchat.widgets.ChatTurn import ChatTurn
-from mchat.widgets.DebugPane import DebugPane
-from mchat.widgets.PromptInput import PromptInput
-from mchat.widgets.History import HistoryContainer
-
-from mchat.dalle_image_generator import DallEAPIWrapper
-
-from mchat.Conversation import ConversationRecord
-
-from textual.containers import Vertical, Horizontal
-
-
-from typing import Any, Dict, List, Optional
-
-from langchain.chat_models import ChatOpenAI
-from langchain.chat_models import AzureChatOpenAI
+from langchain.chat_models import ChatOpenAI, AzureChatOpenAI
+from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
 from langchain.chains import ConversationChain
 from langchain.prompts import (
     ChatPromptTemplate,
@@ -54,10 +23,25 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
 )
 from langchain.schema import SystemMessage, HumanMessage, AIMessage, LLMResult
-from langchain.chains.conversation.memory import (
-    ConversationSummaryBufferMemory,
-    ConversationBufferMemory,
-)
+
+from retry import retry
+
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer
+from textual.containers import VerticalScroll, Vertical, Horizontal
+from textual.reactive import Reactive
+from textual.css.query import NoMatches
+from textual import on, log, work
+from textual import events
+from textual.message import Message
+from textual.worker import Worker
+
+
+from mchat.widgets.ChatTurn import ChatTurn
+from mchat.widgets.DebugPane import DebugPane
+from mchat.widgets.PromptInput import PromptInput
+from mchat.widgets.History import HistoryContainer
+from mchat.dalle_image_generator import DallEAPIWrapper
 
 DEFAULT_PERSONA_FILE = "mchat/default_personas.json"
 EXTRA_PERSONA_FILE = "extra_personas.json"
@@ -594,7 +578,16 @@ class ChatApp(App):
             )
             self.post_message(self.EndChatTurn(role="meta"))
             self._current_question = question
-            out = await self.image_model.arun(question)
+            try:
+                out = await self.image_model.arun(question)
+            except Exception as e:
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant", message=f"Error generating image: {e}"
+                    )
+                )
+                self.post_message(self.EndChatTurn(role="meta"))
+                return
             self.post_message(self.AddToChatMessage(role="assistant", message=out))
             self.post_message(self.EndChatTurn(role="assistant"))
             return
@@ -676,7 +669,7 @@ class ChatApp(App):
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
-        # If we hae a    response, add the turn to the conversation record
+        # If we hae a response, add the turn to the conversation record
         if event.role == "assistant":
             self.record.add_turn(
                 persona=self.current_persona,
