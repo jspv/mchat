@@ -26,12 +26,12 @@ from langchain.schema import SystemMessage, HumanMessage, AIMessage, LLMResult
 
 from retry import retry
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, Logger
 from textual.widgets import Header, Footer
 from textual.containers import VerticalScroll, Vertical, Horizontal
 from textual.reactive import Reactive
 from textual.css.query import NoMatches
-from textual import on, log, work
+from textual import on, work
 from textual import events
 from textual.message import Message
 from textual.worker import Worker
@@ -83,6 +83,9 @@ class ChatApp(App):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # current debug log
+        self.debug_log = ""
 
         # parse arguments
         self.parse_args_and_initialize()
@@ -304,6 +307,20 @@ class ChatApp(App):
             "Summary Buffer",
             lambda: self.memory.moving_summary_buffer,
         )
+        debug_pane.add_entry("log", "Debug Log", lambda: self.debug_log)
+
+        # monkey patch the debug logger
+        app_debug_logger = self.log.debug
+
+        def update_log(msg):
+            self.debug_log += f"{msg}\n"
+            debug_pane.update_entry("log")
+
+        def debug(self, msg, *args, **kwargs):
+            app_debug_logger(msg, *args, **kwargs)
+            update_log(msg)
+
+        Logger.debug = debug
 
     @on(ChatTurn.ChatTurnClicked)
     def click_chat_turn(self, event: events) -> None:

@@ -108,12 +108,29 @@ MultiLineInput {
 /* Debug Pane */
 
 DebugPane {
-    /* border: solid green; */
+    # border: solid green; 
     width: 20%;
-    height: auto;
+    height: 100%;
     display: none;
     background: $panel;
     /* overflow-x: scroll; */
+}
+
+DebugPane Collapsible {
+    color: $secondary;
+}
+
+DebugPane Collapsible Contents {
+    color: $text;
+    # background: $panel;
+    # border: $panel;
+    # border: red;
+    padding: 0;
+    margin: 0;
+    # height: 1;
+    # width: 100%;
+    # box-sizing: content-box;
+    /* border: solid red; */
 }
 
 .-show-debug DebugPane {

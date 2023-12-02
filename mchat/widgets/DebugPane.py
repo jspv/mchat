@@ -1,5 +1,5 @@
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Static, Collapsible, Label
 from textual.reactive import Reactive
 from textual.containers import VerticalScroll
 from rich.console import RenderableType
@@ -8,7 +8,7 @@ from typing import Callable
 from rich.padding import Padding
 
 
-class DebugPane(Widget):
+class DebugPane(VerticalScroll):
     message: RenderableType | None = None
     _regenerate_from_dict: Reactive(bool) = Reactive(False)
     _entries = {}
@@ -18,9 +18,17 @@ class DebugPane(Widget):
         key: str,
         keymsg: RenderableType,
         value: RenderableType | Callable,
+        collapsed: bool = False,
     ) -> None:
         self._entries[key] = (keymsg, value)
-        self._regenerate_from_dict = True
+        # if value is callable, call it to get the value
+        if isinstance(value, Callable):
+            value = str(value())
+        self.mount(
+            Collapsible(
+                Static(str(value), id="debug-" + key), title=keymsg, collapsed=collapsed
+            )
+        )
 
     def update_entry(
         self,
@@ -33,23 +41,28 @@ class DebugPane(Widget):
             value = old_value
 
         self._entries[key] = (keymsg, value)
-        self._regenerate_from_dict = True
+        if isinstance(value, Callable):
+            value = str(value())
+        widget = self.query_one("#debug-" + key)
+        widget.update(value)
 
     def update_status(self) -> None:
-        """force debug pane to update values"""
-        self._regenerate_from_dict = True
+        """force debug pane to update all values"""
 
-    def compose(self) -> None:
-        with VerticalScroll():
-            self.debug_pane_text = DebugPaneText(id="debug-pane-text")
-            yield self.debug_pane_text
+        for key, (keymsg, value) in self._entries.items():
+            self.update_entry(key, value)
 
-    def render(self) -> None:
-        if self._regenerate_from_dict is True:
-            self.debug_pane_text._entries = self._entries
-            self.debug_pane_text.update()
-            self._regenerate_from_dict = False
-        return super().render()
+    # def compose(self) -> None:
+    #     with VerticalScroll():
+    #         self.debug_pane_text = DebugPaneText(id="debug-pane-text")
+    #         yield self.debug_pane_text
+
+    # def render(self) -> None:
+    #     if self._regenerate_from_dict is True:
+    #         self.debug_pane_text._entries = self._entries
+    #         self.debug_pane_text.update()
+    #         self._regenerate_from_dict = False
+    #     return super().render()
 
 
 class DebugPaneText(Static):
