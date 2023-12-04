@@ -3,14 +3,23 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Description
-*mchat* is an entirely text-based LLM chat application with support for different LLMs and pre-establshed 'personas'.   *mchat* uses the excellent [Textual](https://textual.textualize.io) framework for a GUI-like experience complete with mouse support and should run anywhere a decent terminal is available, including over SSH.  *mchat* is very much a work-in-progress and is buggy.  
+*mchat* is an entirely text-based LLM chat application with support for different LLMs and pre-establshed customizable prompt 'personas' that support mult-shot prompts.  *mchat* uses the excellent [Textual](https://textual.textualize.io) framework for a GUI-like experience complete with mouse support and should run anywhere a decent terminal is available, including over SSH. 
+
+All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you will need to disable the Dall-E support if you don't also have an OpenAI API key.
+
+![Screenshot1](screenshot1.png)
+
+*New* - Dall-E support added using the `dall-e` keyword, and an 'image composer' persona to help create prompts.
+
+
+![Screenshot2](screenshot2.png)
 
 ## TODO
 - [x] Copy text to past buffer when clicking on the response
 - [x] Persona support
 - [x] Support Multi-line prompts
-- [ ] Enhance personas to provide initial instructions
-- [ ] History and reloadable sessions with local database storage
+- [x] History and reloadable sessions with local database storage
+- [x] Support for image creation (currently just dall-e)
 - [ ] Support for selecting the use of mutiple models simultaneously
 - [ ] Support for functions 
 

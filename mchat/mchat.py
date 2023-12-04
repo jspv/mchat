@@ -73,6 +73,7 @@ class ChatApp(App):
     BINDINGS = [
         ("ctrl+r", "toggle_dark", "Toggle dark mode"),
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
+        ("ctrl+q", "quit", "Quit"),
     ]
 
     # Toggles debug pane on/off (default is off)
@@ -291,21 +292,30 @@ class ChatApp(App):
         input.focus()
 
         debug_pane = self.query_one(DebugPane)
-        debug_pane.add_entry("model", "Model", lambda: self.llm_model_name)
+        debug_pane.add_entry("model", "LLM Model", lambda: self.llm_model_name)
+        debug_pane.add_entry("imagemodel", "Image Model", lambda: self.image_model_name)
         debug_pane.add_entry("temp", "Temperature", lambda: self.llm_temperature)
         debug_pane.add_entry("persona", "Persona", lambda: self.current_persona)
-        debug_pane.add_entry("question", "Question", lambda: self._current_question)
-        debug_pane.add_entry("prompt", "Prompt", lambda: self.app.conversation.prompt)
+        debug_pane.add_entry(
+            "question", "Question", lambda: self._current_question, collapsed=True
+        )
+        debug_pane.add_entry(
+            "prompt", "Prompt", lambda: self.app.conversation.prompt, collapsed=True
+        )
         debug_pane.add_entry(
             "history",
             "History",
             lambda: self.memory.load_memory_variables({})["history"],
+            collapsed=True,
         )
-        debug_pane.add_entry("memref", "Memory Reference", lambda: self.memory)
+        debug_pane.add_entry(
+            "memref", "Memory Reference", lambda: self.memory, collapsed=True
+        )
         debug_pane.add_entry(
             "summary_buffer",
             "Summary Buffer",
             lambda: self.memory.moving_summary_buffer,
+            collapsed=True,
         )
         debug_pane.add_entry("log", "Debug Log", lambda: self.debug_log)
 
@@ -314,11 +324,13 @@ class ChatApp(App):
 
         def update_log(msg):
             self.debug_log += f"{msg}\n"
-            debug_pane.update_entry("log")
+            if self.app.is_mounted(debug_pane):
+                debug_pane.update_entry("log")
 
         def debug(self, msg, *args, **kwargs):
             app_debug_logger(msg, *args, **kwargs)
-            update_log(msg)
+            if isinstance(msg, str):
+                update_log(msg)
 
         Logger.debug = debug
 
@@ -401,8 +413,6 @@ class ChatApp(App):
 
         # Human message
         base.append(HumanMessagePromptTemplate.from_template("{input}"))
-
-        self.log.debug(f"Prompt template is: {base}")
 
         return ChatPromptTemplate.from_messages(base)
 
@@ -523,9 +533,19 @@ class ChatApp(App):
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="Available Models:\n")
             )
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="- LLM Models:\n")
+            )
             for model in self.available_llm_models:
                 self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f" - {model}\n")
+                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n")
+                )
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="- Image Models:\n")
+            )
+            for model in self.available_image_models:
+                self.post_message(
+                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n")
                 )
             self._current_question = ""
             self.post_message(self.EndChatTurn(role="meta"))
@@ -534,32 +554,43 @@ class ChatApp(App):
         # if the question starts with 'model', set the model
         if question.startswith("model"):
             # get the model
-            llm_model_name = question.split(maxsplit=1)[1].strip()
+            model_name = question.split(maxsplit=1)[1].strip()
 
-            # check to see if the model is valid
-            if llm_model_name not in self.available_llm_models:
+            # check to see if the name is an llm or image model
+            if model_name in self.available_llm_models:
+                self.llm_model_name = model_name
+                self._reinitialize_llm_model()
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",
-                        message=f"Model '{self.llm_model_name}' not found",
+                        message=f"LLM Model set to {self.llm_model_name}",
+                    )
+                )
+                self._current_question = ""
+                self.post_message(self.EndChatTurn(role="assistant"))
+                return
+            elif model_name in self.available_image_models:
+                self.image_model_name = model_name
+                self.image_model = self._initialize_image_model()
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant",
+                        message=f"Image model set to {self.image_model_name}",
+                    )
+                )
+                self._current_question = ""
+                self.post_message(self.EndChatTurn(role="assistant"))
+                return
+            else:
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant",
+                        message=f"Model '{model_name}' not found",
                     )
                 )
                 self._current_question = ""
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
-
-            self.llm_model_name = llm_model_name
-
-            self.post_message(
-                self.AddToChatMessage(
-                    role="assistant",
-                    message=f"Model set to {self.llm_model_name}",
-                )
-            )
-            self._current_question = question
-            self._reinitialize_llm_model()
-            self.post_message(self.EndChatTurn(role="assistant"))
-            return
 
         # if the question starts with 'summary', summarize the conversation
         if question.startswith("summary"):
@@ -667,9 +698,6 @@ class ChatApp(App):
             self.chat_container.scroll_end(animate=False)
 
         await self.chatbox.append_chunk(chunk)
-
-        self.app.log.debug('message is: "{}"'.format(self.chatbox.message))
-        self.app.log.debug('message markdown is: "{}"'.format(self.chatbox.markdown))
 
         # if we're not near the bottom, scroll to the bottom
         scroll_y = self.chat_container.scroll_y

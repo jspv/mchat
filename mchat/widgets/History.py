@@ -12,7 +12,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.chat_models.base import BaseChatModel
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from retry.api import retry
 
@@ -103,8 +103,9 @@ class HistorySessionBox(Widget, can_focus=True):
 
     @staticmethod
     def get_relative_date(timestamp):
-        current_time = datetime.now(pytz.utc)
-        timestamp = timestamp.replace(tzinfo=pytz.utc)
+        local_timezone = datetime.now(timezone.utc).astimezone().tzinfo
+        current_time = datetime.now(local_timezone)
+        timestamp = timestamp.replace(tzinfo=local_timezone)
         if timestamp.date() == current_time.date():
             return "today" + "-" + timestamp.strftime("%H:%M")
         elif timestamp.date() == current_time.date() - timedelta(1):

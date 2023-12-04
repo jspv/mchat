@@ -28,7 +28,6 @@ class ChatTurn(Widget):
             yield self.md
 
     def on_click(self) -> None:
-        self.log.debug("Clicked on ChatTurn")
         self.post_message(ChatTurn.ChatTurnClicked(self))
 
     @property
@@ -41,7 +40,6 @@ class ChatTurn(Widget):
         open_new_tab(message.href)
 
     async def append_chunk(self, chunk: Any):
-        self.app.log.debug(f'Appending chunk: "{chunk}"')
         self.message += chunk
         await self.md.update(self.message)
 
@@ -83,7 +81,6 @@ class oldChatTurn(Widget, can_focus=True):
     #     # return self.markdown
 
     async def append_chunk(self, chunk: Any):
-        self.app.log.debug(f"Appending chunk: {chunk}")
         self.message += chunk
         self.md.update(self.markdown)
         # self.refresh(layout=True)
