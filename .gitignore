@@ -160,6 +160,7 @@ cython_debug/
 #.idea/
 
 .vscode/
+dev-examples/
 *.private
 *.ipynb
 extra_personas.json
