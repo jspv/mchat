@@ -11,7 +11,7 @@ ms_llm_models = ["ms_openai_gpt_35"]
 oai_gpt-3.5-turbo.deployment = "gpt-3.5-turbo"
 oai_gpt-3.5-turbo.max_tokens = 4096
 
-oai_gpt-4.deployment = "gpt-4"
+oai_gpt-4.deployment = "gpt-4-1106-preview"
 oai_gpt-4.max_tokens = 8192
 
 ms_openai_gpt_35.deployment = "test"
