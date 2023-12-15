@@ -1,3 +1,9 @@
+Screen {
+    # This makes sure dialogs are centered on the screen
+    align: center middle;
+    layers: below above;
+}
+
 Header {
     dock: top;
 }
@@ -210,4 +216,123 @@ VerticalScroll DebugPane {
 
 .debugpanetext--key {
     color: $secondary;
+}
+
+/* Dialog Stuff */
+
+
+Dialog {
+    display: none;
+    layer: above;
+    width: auto;
+    border: round $primary;
+    box-sizing: border-box;
+    background: $boost;
+}
+
+.-show-dialog Dialog {
+    display: block;
+}
+
+Dialog Container {
+    /* border: wide purple; */
+    width: auto;
+    height: auto;
+}
+
+/* Matches the question text in the button */
+#dialog_question {
+    text-style: bold;
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    margin: 0 0 2 0;
+}
+
+/* Matches the container holding the dialog buttons */
+.dialog_buttons {
+    align: center middle;
+    height: auto;
+    width: auto;
+    /* border: wide red; */
+
+}
+
+/* The button class */
+Dialog Button {
+    margin: 0 4;
+}
+
+
+
+/* FilePickerDialog Stuff */
+
+FilePickerDialog {
+    display: none;
+    layer: above;
+    height: auto;
+    max-height: 80%;
+    width: auto;
+    border: round $secondary;
+    # border: red;
+    box-sizing: border-box;
+    background: $boost;
+    # background: blue;
+}
+
+FilePickerDialog Horizontal {
+    width: auto;
+    height: auto;
+}
+
+FilePickerDialog DirUpButton {
+    width: auto;
+    height: auto;
+}
+
+FilePickerDialog Vertical {
+    width: auto;
+    height: auto;
+    # border: orange;
+}
+
+/* Matches the question text in the button */
+#file_picker_dialog_question {
+    text-style: bold;
+    width: auto;
+    height: auto;
+    # border: blue;
+    content-align: center middle;
+    margin: 0 0 0 0;
+}
+
+FilePickerDialog VerticalScroll {
+    border: white; 
+    width: auto;
+    height: 1fr;    
+}
+
+DirectoryTree {
+    width: auto;
+    height: auto;
+    min-width: 45;
+}
+
+/* Matches the Horizontal container holding the dialog buttons */
+.file_picker_dialog_buttons {
+    align: center middle;
+    height: auto;
+    width: 100%;
+    # border: wide red; 
+
+}
+
+.-show-file_picker_dialog FilePickerDialog {
+    display: block;
+}
+
+
+/* The button class */
+FilePickerDialog Button {
+    margin: 0 4;
 }

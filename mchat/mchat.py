@@ -41,7 +41,10 @@ from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
 from mchat.widgets.PromptInput import PromptInput
 from mchat.widgets.History import HistoryContainer
-from mchat.dalle_image_generator import DallEAPIWrapper
+from mchat.widgets.Dialog import Dialog
+from mchat.widgets.FilePicker import FilePickerDialog
+
+from mchat.llmtools import ModelManager
 
 DEFAULT_PERSONA_FILE = "mchat/default_personas.json"
 EXTRA_PERSONA_FILE = "extra_personas.json"
@@ -73,7 +76,16 @@ class ChatApp(App):
     BINDINGS = [
         ("ctrl+r", "toggle_dark", "Toggle dark mode"),
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
-        ("ctrl+q", "quit", "Quit"),
+        (
+            "ctrl+q",
+            "confirm_y_n('[bold]Quit?[/bold] Y/N', 'quit', 'close_dialog', '[Quit]')",
+            "Quit",
+        ),
+        (
+            "ctrl+o",
+            "select_file('PDF File to Open', 'show_file', 'close_dialog')",
+            "Open File",
+        ),
     ]
 
     # Toggles debug pane on/off (default is off)
@@ -111,128 +123,62 @@ class ChatApp(App):
                 extra_personas = json.load(f)
             self.personas.update(extra_personas)
 
+        # Get an object to manage the AI models
+        self.mm = ModelManager()
+
         # load the llm models from settings - name: {key: value,...}
-        self.llm_models = {}
-        for model_family in settings.llm_model_families:
-            for model in getattr(settings, model_family):
-                api_key = getattr(settings, f"{model_family}_api_key")
-                # see if the model has any parameters
-                if getattr(settings, model, None) is not None:
-                    self.llm_models[model] = dict(getattr(settings, model))
-                    self.llm_models[model]["api_key"] = api_key
-                else:
-                    self.llm_models[model] = {"api_key": api_key}
-        self.available_llm_models = self.llm_models.keys()
 
-        # load the image models from settings - name: {key: value,...}
-        self.image_models = {}
-        for model_family in settings.image_model_families:
-            for model in getattr(settings, model_family):
-                api_key = getattr(settings, f"{model_family}_api_key")
-                # see if the model has any parameters
-                if getattr(settings, model, None) is not None:
-                    self.image_models[model] = dict(getattr(settings, model))
-                    self.image_models[model]["api_key"] = api_key
-                else:
-                    self.image_models[model] = {"api_key": api_key}
-        self.available_image_models = self.image_models.keys()
+        self.available_llm_models = self.mm.available_chat_models
+        self.available_image_models = self.mm.available_image_models
 
-        # Initialize the default language model
-        self.default_llm_model = settings.default_llm_model
-        self.default_llm_temperature = settings.default_llm_temperature
-        self.llm_model_name = self.default_llm_model
-        self.llm_temperature = self.default_llm_temperature
-        self.llm = self._initialize_model(
-            self.llm_model_name, [StreamingStdOutCallbackHandler()]
+        self.llm_model_name = self.mm.default_chat_model
+        self.llm_temperature = self.mm.default_chat_temperature
+
+        # main chat model
+        self.llm = self.mm.open_model(
+            self.llm_model_name,
+            streaming=True,
+            callbacks=[StreamingStdOutCallbackHandler()],
         )
 
-        # Initialize the summary model
-        self.summary_model_name = settings.memory_model
-        self.summary_temperature = settings.memory_model_temperature
-        self.summary_max_tokens = settings.memory_model_max_tokens
-        self.summary_llm = self._initialize_model(
-            self.summary_model_name,
-            override_temperature=self.summary_temperature,
-            streaming=False,
+        # summary model for memory
+        self.summary_llm = self.mm.open_model(
+            self.mm.default_memory_model,
+            temperature=self.mm.default_memory_model_temperature,
         )
 
         self.memory = ConversationSummaryBufferMemory(
             llm=self.summary_llm,
-            max_token_limit=self.summary_max_tokens,
+            max_token_limit=self.mm.default_memory_model_max_tokens,
             return_messages=True,
         )
 
         # Initialize the image model
         self.default_image_model = settings.get("default_image_model", None)
-        if self.default_image_model is not None:
-            self.image_model_name = self.default_image_model
-            self.image_model = self._initialize_image_model()
+        if self.mm.default_image_model is not None:
+            self.image_model_name = self.mm.default_image_model
+            self.image_model = self.mm.open_model(
+                self.image_model_name, model_type="image"
+            )
 
         # Initialize the conversation chain
         self.default_persona = getattr(settings, "default_persona", "default")
         self.set_persona(self.default_persona)
 
-    def _initialize_model(
-        self,
-        model_name: str,
-        callbacks: List[BaseCallbackHandler] = [],
-        override_temperature: Optional[float] = None,
-        streaming: bool = True,
-    ):
-        """Initialize the large language model."""
-        self.log(f"Initializing llm model {model_name}")
-
-        temperature = override_temperature or self.llm_temperature
-
-        # if the model name starts with ms_, use the AzureChatOpenAI model
-        if model_name.startswith("ms_"):
-            llm = AzureChatOpenAI(
-                deployment_name=self.llm_models[model_name]["deployment"],
-                openai_api_base=self.llm_models[model_name]["base_url"],
-                openai_api_version=self.llm_models[model_name]["api"],
-                openai_api_key=self.llm_models[model_name]["api_key"],
-                verbose=False,
-                streaming=streaming,
-                callbacks=callbacks,
-                temperature=temperature,
-            )
-        elif model_name.startswith("oai_"):
-            llm = ChatOpenAI(
-                model_name=self.llm_models[model_name]["deployment"],
-                openai_api_key=self.llm_models[model_name]["api_key"],
-                verbose=False,
-                streaming=streaming,
-                callbacks=callbacks,
-                temperature=temperature,
-            )
-        else:
-            raise ValueError(f"Unknown model type {model_name}")
-
-        return llm
-
-    def _initialize_image_model(self):
-        """initialize the image model."""
-        image_model = DallEAPIWrapper(
-            openai_api_key=self.image_models[self.image_model_name]["api_key"],
-            num_images=self.image_models[self.image_model_name]["num_images"],
-            size=self.image_models[self.image_model_name]["size"],
-            model=self.image_models[self.image_model_name]["model"],
-            quality=self.image_models[self.image_model_name]["quality"],
-        )
-        return image_model
-
     def _reinitialize_llm_model(self, messages: List[str] = []):
         """re-initialize the language model."""
-        self.llm = self._initialize_model(
-            self.llm_model_name, [StreamingStdOutCallbackHandler()]
+        self.llm = self.mm.open_model(
+            self.llm_model_name,
+            streaming=True,
+            callbacks=[StreamingStdOutCallbackHandler()],
         )
 
-        # if there are messages, we're restring a historical session, create new
+        # if there are messages, we're restoring a historical session, create new
         # memory and reinitialize the conversation
         if len(messages) > 0:
             self.memory = ConversationSummaryBufferMemory(
                 llm=self.summary_llm,
-                max_token_limit=self.summary_max_tokens,
+                max_token_limit=self.mm.default_memory_model_max_tokens,
                 return_messages=True,
                 chat_memory=ChatMessageHistory(messages=messages_from_dict(messages)),
             )
@@ -255,6 +201,10 @@ class ChatApp(App):
         debug_pane = self.query_one(DebugPane)
         debug_pane.update_status()
 
+    def _reinitialize_image_model(self):
+        """re-initialize the image model."""
+        self.image_model = self.mm.open_model(self.image_model_name, model_type="image")
+
     def parse_args_and_initialize(self):
         parser = argparse.ArgumentParser()
         parser.add_argument(
@@ -275,6 +225,8 @@ class ChatApp(App):
                 yield self.chat_container
                 yield PromptInput()
         yield Footer()
+        yield Dialog(id="modal_dialog")
+        yield FilePickerDialog(id="file_picker")
 
     def on_mount(self) -> None:
         self.title = "mchat - Multi-Model Chatbot"
@@ -368,6 +320,37 @@ class ChatApp(App):
     def action_toggle_debug(self) -> None:
         """An action to toggle debug mode."""
         self._show_debug = not self._show_debug
+
+    def action_confirm_y_n(
+        self, message: str, confirm_action: str, noconfirm_action: str, title: str = ""
+    ) -> None:
+        """Build Yes/No Modal Dialog and process callbacks."""
+        dialog = self.query_one("#modal_dialog", Dialog)
+        dialog.confirm_action = confirm_action
+        dialog.noconfirm_action = noconfirm_action
+        dialog.set_message(message)
+        dialog.show_dialog()
+
+    def action_select_file(
+        self,
+        message: str = "Select a file to open",
+        confirm_action: str = "close_dialog",
+        noconfirm_action: str = "close_dialog",
+    ) -> None:
+        """Pick a file"""
+        # TODO - Add filter
+        file_picker = self.query_one("#file_picker", FilePickerDialog)
+        file_picker.set_message(message)
+        file_picker.confirm_action = confirm_action
+        file_picker.noconfirm_action = noconfirm_action
+        file_picker.show_dialog()
+
+    def action_show_file(self) -> None:
+        """Show the selected file"""
+        file_picker = self.query_one("#file_picker", FilePickerDialog)
+        self.app.log.debug(
+            f"File {file_picker.selected_path} was selected by the file picker"
+        )
 
     def count_tokens(self, chain, query):
         with get_openai_callback() as cb:
@@ -571,7 +554,7 @@ class ChatApp(App):
                 return
             elif model_name in self.available_image_models:
                 self.image_model_name = model_name
-                self.image_model = self._initialize_image_model()
+                self._reinitialize_image_model()
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",

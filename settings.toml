@@ -1,53 +1,100 @@
-llm_model_families = ["oai_llm_models", "ms_llm_models"]
-image_model_families = ["oai_image_models"]
+# Models
+# sections need to start with model. (with period) and no other periods in the section name
+[models.chat.gpt-35-turbo]
+api_key = "@format {this.openai_api_key}"
+model = "gpt-3.5-turbo"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_max_context = 16385
+_max_tokens = 4096
+_cost_input = 0.0010
+_cost_output = 0.0020
 
-oai_llm_models = ["oai_gpt-3.5-turbo", "oai_gpt-4"]
-oai_image_models = ["oai_dall-e-2", "oai_dall-e-3"]
+[models.chat.gpt-4-turbo]
+api_key = "@format {this.openai_api_key}"
+model = "gpt-4-1106-preview"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_max_tokens = 4096
+_max_context = 128000
+_cost_input = 0.01
+_cost_output = 0.03
 
-ms_llm_models = ["ms_openai_gpt_35"]
+[models.chat.azure_openai_gpt_35]
+api_key = "@format {this.azure_openai_api_key}"
+api_type = "azure"
+model = "gpt-3.5-turbo"
+azure_deployment = "gpt-35-turbo"
+azure_endpoint = "@format {this.azure_openai_base_url}"
+api_version = "2023-09-01-preview"
+# base_url = "@format {this.azure_openai_base_url}"
+_max_tokens = 4096
+_max_context = 16385
+_cost_input = 0.0015
+_cost_output = 0.002
 
-# LLM Models
+[models.chat.azure_openai_gpt_4]
+api_key = "@format {this.azure_openai_api_key}"
+api_type = "azure"
+model = "gpt-4"
+azure_deployment = "gpt-4"
+azure_endpoint = "@format {this.azure_openai_base_url}"
+api_version = "2023-09-01-preview"
+# base_url = "@format {this.azure_openai_base_url}"
+_max_tokens = 4096
+_max_context = 16385
+_cost_input = 0.01
+_cost_output = 0.03
 
-oai_gpt-3.5-turbo.deployment = "gpt-3.5-turbo"
-oai_gpt-3.5-turbo.max_tokens = 4096
+[models.image.dall-e-2]
+api_key = "@format {this.openai_api_key}"
+model = "dall-e-2"
+api_type = "open_ai"
+size = "1024x1024"
+quality = "standard"
+num_images = 1
+_cost_output = 0.020
 
-oai_gpt-4.deployment = "gpt-4-1106-preview"
-oai_gpt-4.max_tokens = 8192
+[models.image.dall-e-3]
+api_key = "@format {this.openai_api_key}"
+model = "dall-e-3"
+api_type = "open_ai"
+size = "1024x1024"
+quality = "standard"
+_cost_output = 0.080
 
-ms_openai_gpt_35.deployment = "test"
-ms_openai_gpt_35.max_tokens = 4096
-ms_openai_gpt_35.api = "2023-03-15-preview"
-ms_openai_gpt_35.proxy = ""
+[models.embedding.text-embedding-ada-002]
+api_key = "@format {this.openai_api_key}"
+model = "text-embedding-ada-002"
+api_type = "open_ai"
+_cost_input = 0.0001
 
-# Image Models
+[models.embedding.azure_text-embedding-ada-002]
+api_key = "@format {this.azure_openai_api_key}"
+model = "text-embedding-ada-002"
+api_type = "azure"
+api_version = "2023-09-01-preview"
+base_url = "@format {this.azure_openai_base_url}"
+_cost_input = 0.0001
 
-oai_dall-e-2.model = "dall-e-2"
-oai_dall-e-2.num_images = 1
-oai_dall-e-2.size = "1024x1024"
-oai_dall-e-2.quality = "standard"
+[defaults]
 
-oai_dall-e-3.model = "dall-e-3"
-oai_dall-e-3.num_images = 1
-oai_dall-e-3.size = "1024x1024"
-oai_dall-e-3.quality = "standard"
+# chat_model = "gpt-35-turbo"
+chat_model = "azure_openai_gpt_4"
+chat_temperature = 0.7
+persona = "default"
 
-# base_url moved to .secrets.toml as it references account-specific information.  
-# .secrects.toml needs dynaconf-merge = true for this to work
-#ms_openai_gpt_35.base_url = "https://openai.azure.com"
+image_model = "dall-e-3"
 
-default_llm_model = "oai_gpt-3.5-turbo"
-#default_llm_model = "ms_openai_gpt_35"
-default_llm_temperature = 0.7
-default_persona = "default"
-
-default_image_model = "oai_dall-e-3"
+embedding_model = "text-embedding-ada-002"
 
 # Using ConversationSummaryBufferMemory - specify model and max_tokens
-memory_model = "oai_gpt-3.5-turbo"
+# memory_model = "gpt-35-turbo"
+memory_model = "azure_openai_gpt_35"
 memory_model_temperature = 0.1
 memory_model_max_tokens = 2048
 
 # in .secrets.toml
-# dynaconf_merge = true
-# oai_models_api_key = "oai_ai_api_key_goes_here"
-# ms_models_api_key = "ms_openai_api_key_goes_here"
+# openai_api_key = "oai_ai_api_key_goes_here"
+# azure_openai_api_key = "ms_openai_api_key_goes_here"
+# azure_openai_base_url = "your deployment base url goes here"
