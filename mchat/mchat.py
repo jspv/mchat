@@ -243,6 +243,7 @@ class ChatApp(App):
         input = self.query_one(PromptInput)
         input.focus()
 
+        # populate the debug pane
         debug_pane = self.query_one(DebugPane)
         debug_pane.add_entry("model", "LLM Model", lambda: self.llm_model_name)
         debug_pane.add_entry("imagemodel", "Image Model", lambda: self.image_model_name)
@@ -271,7 +272,7 @@ class ChatApp(App):
         )
         debug_pane.add_entry("log", "Debug Log", lambda: self.debug_log)
 
-        # monkey patch the debug logger
+        # monkey patch the debug logger so we cat watch app logs in the debug pane
         app_debug_logger = self.log.debug
 
         def update_log(msg):
@@ -337,12 +338,13 @@ class ChatApp(App):
         confirm_action: str = "close_dialog",
         noconfirm_action: str = "close_dialog",
     ) -> None:
-        """Pick a file"""
+        """Open the file picker dialog"""
         # TODO - Add filter
         file_picker = self.query_one("#file_picker", FilePickerDialog)
-        file_picker.set_message(message)
+        file_picker.message = message
         file_picker.confirm_action = confirm_action
         file_picker.noconfirm_action = noconfirm_action
+        file_picker.allowed_extensions = [".pdf"]
         file_picker.show_dialog()
 
     def action_show_file(self) -> None:

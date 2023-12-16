@@ -1,8 +1,6 @@
-from textual.widgets import DirectoryTree
-
 from textual.app import ComposeResult
 from textual.binding import Binding, _Bindings
-from textual.containers import Horizontal, Container, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import Reactive
 from textual.widget import Widget
 from textual.widgets import Button, Static, DirectoryTree
@@ -17,13 +15,23 @@ from typing import Iterable
 
 
 class FilteredDirectoryTree(DirectoryTree):
+    """A DirectoryTree that can filter files"""
+
+    extensions = []
+    show_dirs = True
+
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         """Filter paths to only show certain files"""
-        return [
-            path
-            for path in paths
-            if path.name.endswith(".pdf") or path.name.endswith(".txt") or path.is_dir()
-        ]
+
+        returned = []
+        for path in paths:
+            if self.show_dirs is True and path.is_dir():
+                returned.append(path)
+            elif not self.extensions:
+                returned.append(path)
+            elif path.suffix in self.extensions:
+                returned.append(path)
+        return returned
 
     def __init__(self, path: Path, **kwargs):
         absolute_path = str(Path(path).absolute())
@@ -45,12 +53,74 @@ class DirUpButton(Static):
 class FilePickerDialog(Widget):
     """Display a modal dialog"""
 
+    DEFAULT_CSS = """
+
+        FilePickerDialog {
+            display: none;
+            layer: above;
+            height: auto;
+            max-height: 80%;
+            width: auto;
+            border: round $secondary;
+            box-sizing: border-box;
+            background: $boost;
+        }
+
+        FilePickerDialog Horizontal {
+            width: auto;
+            height: auto;
+        }
+
+        FilePickerDialog DirUpButton {
+            width: auto;
+            height: auto;
+        }
+
+        FilePickerDialog Vertical {
+            width: auto;
+            height: auto;
+        }
+
+        /* Matches the question text  */
+        #file_picker_dialog_question {
+            text-style: bold;
+            width: auto;
+            height: auto;
+            content-align: center middle;
+            margin: 0 0 0 0;
+        }
+
+        FilePickerDialog VerticalScroll {
+            border: white;
+            width: auto;
+            height: 1fr;
+        }
+
+        DirectoryTree {
+            width: auto;
+            height: auto;
+            min-width: 45;
+        }
+
+        /* Matches the Horizontal container holding the dialog buttons */
+        .file_picker_dialog_buttons {
+            align: center middle;
+            width: 100%;
+        }
+
+        /* The button class */
+        FilePickerDialog Button {
+            margin: 0 4;
+        }
+
+        # Put the folloiwng in your app's CSS to allow the dialog to be shown
+        .-show-file_picker_dialog FilePickerDialog {
+            display: block;
+        }
+
+    """
+
     _show_dialog = Reactive(False)
-    # DEFAULT_CSS = """
-
-    # /* The top level dialog (a Container) */
-
-    # """
 
     BINDINGS = [
         ("y", "run_confirm_binding('dialog_y')", "OK"),
@@ -58,6 +128,8 @@ class FilePickerDialog(Widget):
         ("u", "go_up_tree", "DirUp"),
         ("right", "focus_on_directory", "DirFocus"),
     ]
+
+    current_path = Path.cwd()
 
     def __init__(
         self,
@@ -70,7 +142,7 @@ class FilePickerDialog(Widget):
         self.confirm_action = confirm_action
         self.noconfirm_action = noconfirm_action
         # actual message will be set using set_message()
-        self.message = ""
+        self._message = ""
 
         # list to save and restore focus for modal dialogs
         self._focuslist = []
@@ -79,17 +151,10 @@ class FilePickerDialog(Widget):
 
         super().__init__(name=name, id=id, classes=classes)
 
-    class FocusMessage(Message):
-        """Message to inform the app that Focus has been taken"""
-
-        def __init__(self, focustaken=True) -> None:
-            self.focustaken = focustaken
-            super().__init__()
-
     def compose(self) -> ComposeResult:
         yield Vertical(
             Static(self.message, id="file_picker_dialog_question"),
-            VerticalScroll(DirUpButton(), FilteredDirectoryTree(".")),
+            VerticalScroll(DirUpButton(), FilteredDirectoryTree(self.current_path)),
             Horizontal(
                 Button("OK", variant="success", disabled=True, id="dialog_y"),
                 Button("Cancel", variant="error", id="dialog_n"),
@@ -98,16 +163,26 @@ class FilePickerDialog(Widget):
             id="file_picker_dialog",
         )
 
+    # Custom Messages
+
+    @dataclass
+    class FocusMessage(Message):
+        """Message to inform the app that Focus has been taken"""
+
+        focustaken: bool = True
+
     @dataclass
     class ChildClicked(Message):
-        """Message from a child inform the app that a child widget has been clicked"""
+        """Message to inform this dialog that a child widget has been clicked"""
 
         clicked_box: Widget
         action: str
 
+    # message handlers
+
     @on(ChildClicked)
     async def _handle_child_clicked(self, message: ChildClicked):
-        """Handle a child widget being clicked"""
+        """Handle a child widget being clicked and run the associated action"""
         if message.action == "dirup":
             await self.run_action("go_up_tree")
 
@@ -130,17 +205,34 @@ class FilePickerDialog(Widget):
         button = self.query_one("#dialog_y", Button)
         button.disabled = False
 
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """When a button is pressed, run the associated action"""
+        button_id = event.button.id
+        assert button_id is not None
+        await self._action_run_confirm_binding(button_id)
+
     def watch__show_dialog(self, show_dialog: bool) -> None:
         """Called when _show_dialog is modified"""
         self.app.set_class(show_dialog, "-show-file_picker_dialog")
 
-    def set_message(self, message: str) -> None:
-        """Update the dialgo message"""
-        self.query_one("#file_picker_dialog_question", Static).update(message)
+    @property
+    def message(self):
+        return self._message
+
+    @message.setter
+    def message(self, value: str):
+        """Update the dialog message"""
+        self._message = value
+        self.query_one("#file_picker_dialog_question", Static).update(self._message)
 
     def show_dialog(self) -> None:
+        """Show the filepicker"""
         self._override_bindings()
         self._override_focus()
+        # reload the tree as filter may have changed
+        tree = self.query_one(FilteredDirectoryTree)
+        tree.path = self.current_path
+        tree.reload()
         self._show_dialog = True
 
     def action_close_dialog(self) -> None:
@@ -149,18 +241,20 @@ class FilePickerDialog(Widget):
         self._restore_focus()
         self._show_dialog = False
 
-    def action_go_up_tree(self) -> None:
-        """Go up a directory"""
-        tree = self.query_one(FilteredDirectoryTree)
-        tree.path = tree.path.parent
-        tree.reload()
+    def _action_go_up_tree(self) -> None:
+        """Go up a directory, but only if directory traversal is enabled"""
+        if self.show_dirs:
+            tree = self.query_one(FilteredDirectoryTree)
+            tree.path = tree.path.parent
+            tree.reload()
 
-    def action_focus_on_directory(self) -> None:
+    def _action_focus_on_directory(self) -> None:
         """Focus on the directory tree"""
         # if the selected path is a directory, focus on it
         if self.selected_path.is_dir():
             tree = self.query_one(FilteredDirectoryTree)
             tree.path = self.selected_path
+            self.current_path = self.selected_path
             tree.reload()
 
     @property
@@ -179,6 +273,41 @@ class FilePickerDialog(Widget):
     def noconfirm_action(self, value: str):
         self._noconfirm_action = value
 
+    @property
+    def path(self):
+        return self.current_path
+
+    @path.setter
+    def path(self, value: Path):
+        if value.is_dir():
+            self.current_path = value
+        else:
+            self.current_path = value.parent
+        # reload the tree
+        tree = self.query_one(FilteredDirectoryTree)
+        tree.path = self.current_path
+        tree.reload()
+
+    @property
+    def allowed_extensions(self):
+        tree = self.query_one(FilteredDirectoryTree)
+        return tree.extensions
+
+    @allowed_extensions.setter
+    def allowed_extensions(self, value: list[str]):
+        tree = self.query_one(FilteredDirectoryTree)
+        tree.extensions = value
+
+    @property
+    def show_dirs(self):
+        tree = self.query_one(FilteredDirectoryTree)
+        return tree.show_dirs
+
+    @show_dirs.setter
+    def show_dirs(self, value: bool):
+        tree = self.query_one(FilteredDirectoryTree)
+        tree.show_dirs = value
+
     def _override_bindings(self):
         """Force bindings for the dialog"""
         self._bindings_stack.append(self.app._bindings)
@@ -193,6 +322,11 @@ class FilePickerDialog(Widget):
             ),
         ]
         self.app._bindings = _Bindings(newbindings)
+
+    def _restore_bindings(self):
+        """Restore bindings to what they were before we stole them"""
+        if len(self._bindings_stack) > 0:
+            self.app._bindings = self._bindings_stack.pop()
 
     async def _action_run_confirm_binding(self, answer: str):
         """When someone presses a button or key, directly run the associated binding"""
@@ -213,15 +347,6 @@ class FilePickerDialog(Widget):
         else:
             raise ValueError
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id
-        assert button_id is not None
-        await self._action_run_confirm_binding(button_id)
-
-    def _restore_bindings(self):
-        if len(self._bindings_stack) > 0:
-            self.app._bindings = self._bindings_stack.pop()
-
     def _override_focus(self):
         """remove focus for everything, force it to the dialog"""
         self._focus_save = self.app.focused
@@ -229,7 +354,9 @@ class FilePickerDialog(Widget):
             self._focuslist.append(widget)
             widget.can_focus = False
         self.can_focus = True
-        self.focus()
+        # put focus on the tree
+        tree = self.query_one(FilteredDirectoryTree)
+        tree.focus()
         self.post_message(self.FocusMessage(focustaken=True))
 
     def _restore_focus(self):

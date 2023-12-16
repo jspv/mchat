@@ -264,75 +264,7 @@ Dialog Button {
 }
 
 
-
-/* FilePickerDialog Stuff */
-
-FilePickerDialog {
-    display: none;
-    layer: above;
-    height: auto;
-    max-height: 80%;
-    width: auto;
-    border: round $secondary;
-    # border: red;
-    box-sizing: border-box;
-    background: $boost;
-    # background: blue;
-}
-
-FilePickerDialog Horizontal {
-    width: auto;
-    height: auto;
-}
-
-FilePickerDialog DirUpButton {
-    width: auto;
-    height: auto;
-}
-
-FilePickerDialog Vertical {
-    width: auto;
-    height: auto;
-    # border: orange;
-}
-
-/* Matches the question text in the button */
-#file_picker_dialog_question {
-    text-style: bold;
-    width: auto;
-    height: auto;
-    # border: blue;
-    content-align: center middle;
-    margin: 0 0 0 0;
-}
-
-FilePickerDialog VerticalScroll {
-    border: white; 
-    width: auto;
-    height: 1fr;    
-}
-
-DirectoryTree {
-    width: auto;
-    height: auto;
-    min-width: 45;
-}
-
-/* Matches the Horizontal container holding the dialog buttons */
-.file_picker_dialog_buttons {
-    align: center middle;
-    height: auto;
-    width: 100%;
-    # border: wide red; 
-
-}
-
+/* File Picker Dialog - start hidden */
 .-show-file_picker_dialog FilePickerDialog {
     display: block;
-}
-
-
-/* The button class */
-FilePickerDialog Button {
-    margin: 0 4;
 }
