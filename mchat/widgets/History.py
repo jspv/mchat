@@ -8,18 +8,12 @@ from textual import on
 from dataclasses import dataclass
 from rich.text import Text
 
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
-from langchain.chat_models.base import BaseChatModel
-
 from datetime import datetime, timedelta, timezone
 
-from retry.api import retry
-
 from mchat.Conversation import ConversationRecord
+from mchat.llm import ChainManager
 
 import apsw.bestpractice
-import pytz
 
 
 """
@@ -32,7 +26,7 @@ composed of a summary box, a copy button, and delete button.
 
 
 class HistorySessionBox(Widget, can_focus=True):
-    """A Widget that displays a single Chat History session."""
+    """A Widget that contains a single Chat History session."""
 
     def __init__(
         self,
@@ -174,41 +168,37 @@ class HistoryContainer(VerticalScroll):
     Chat submissions: {conversation}
     """
 
-    def __init__(
-        self, summary_model: BaseChatModel, new_label: str = "", *args, **kwargs
-    ) -> None:
+    def __init__(self, new_label: str = "", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.new_label = new_label
 
-        self.prompt = PromptTemplate(
-            template=self.prompt_template, input_variables=["conversation"]
-        )
-        self.llm_short_summary_chain = LLMChain(prompt=self.prompt, llm=summary_model)
+        self.cm = ChainManager()
 
+    def compose(self) -> None:
         # Open or create the database
-        self.conneciton = self._initialize_db()
+        self.connection = self._initialize_db()
 
         # If there are records in the database, load them
-        cursor = self.conneciton.cursor()
+        cursor = self.connection.cursor()
         rows = cursor.execute("SELECT id FROM Conversations").fetchall()
         records = []
         if len(rows) > 0:
             for row in rows:
-                records.append(self._read_conversation_from_db(self.conneciton, row[0]))
+                records.append(self._read_conversation_from_db(self.connection, row[0]))
 
             # sort the records by timestamp of first turn
             records.sort(key=lambda x: x.created)
             for record in records:
-                self._add_previous_session(record)
+                yield self._add_previous_session(record)
 
-        self.scroll_to_end()
-
-    def compose(self) -> None:
         # create a new session with an empty conversation record
         record = ConversationRecord()
         self.active_session = HistorySessionBox(record=record, new_label=self.new_label)
         self.active_session.add_class("-active")
         yield self.active_session
+
+    def on_mount(self) -> None:
+        self.scroll_to_end()
 
     def scroll_to_end(self) -> None:
         self.scroll_end(animate=False)
@@ -254,18 +244,12 @@ class HistoryContainer(VerticalScroll):
         id = record.id
         cursor.execute("DELETE FROM Conversations WHERE id=?", (id,))
 
-    @(retry(tries=3, delay=1))
-    async def get_summary_blurb(self, conversation: str) -> str:
-        """Summarize a conversation using the LLMChain model."""
-        summary = await self.llm_short_summary_chain.arun(conversation)
-        return summary
-
-    def _add_previous_session(self, record: ConversationRecord) -> None:
-        """Add a new session to the HistoryContainer."""
+    def _add_previous_session(self, record: ConversationRecord) -> HistorySessionBox:
+        """returns a new HistorySessionBox to the HistoryContainer."""
         self.active_session = HistorySessionBox(
             record=record, new_label=self.new_label, label=record.summary
         )
-        self.mount(self.active_session)
+        return self.active_session
 
     async def _add_session(
         self, record: ConversationRecord | None = None, label: str = ""
@@ -288,21 +272,27 @@ class HistoryContainer(VerticalScroll):
         for child in self.children:
             child.remove_class("-active")
         await self.mount(self.active_session)
+        pass
 
     async def update_conversation(self, record: ConversationRecord):
         """Update the active session with a new ConversationRecord."""
 
+        # grab the last 10 turns
         turns = record.turns
         if len(turns) > 10:
             turns = turns[-10:]
-        conversation = "\n".join([f"user:{turn.prompt}" for turn in turns])
 
-        # Summarize the conversation and update the widget
-        record.summary = await self.get_summary_blurb(conversation)
+        # group the turns of the conversation and summarize
+        conversation = []
+        for turn in turns:
+            conversation.append({"user": turn.prompt, "ai": turn.response})
+        record.summary = await self.cm.aget_summary_label(conversation)
+
+        # update the active session
         await self.active_session.update_box(record)
 
         # update the database
-        self._write_conversation_to_db(self.conneciton, record)
+        self._write_conversation_to_db(self.connection, record)
 
     async def new_session(self) -> ConversationRecord:
         """Add a new empty session to the HistoryContainer and set it as active"""
@@ -361,7 +351,7 @@ class HistoryContainer(VerticalScroll):
                 # remove the session from the database
                 if event.clicked_box.record is not None:
                     self._delete_conversation_from_db(
-                        self.conneciton, event.clicked_box.record
+                        self.connection, event.clicked_box.record
                     )
                 await event.clicked_box.remove()
                 # set the .-active class
@@ -375,7 +365,7 @@ class HistoryContainer(VerticalScroll):
                 # if the clicked box is not the current session, just remove it
                 # remove the session from the database
                 self._delete_conversation_from_db(
-                    self.conneciton, event.clicked_box.record
+                    self.connection, event.clicked_box.record
                 )
                 await event.clicked_box.remove()
                 return

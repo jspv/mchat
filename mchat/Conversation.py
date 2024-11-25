@@ -10,6 +10,8 @@ import uuid
 
 @dataclass
 class Turn(object):
+    """Object to store a single back/forth turn in a conversation"""
+
     persona: str
     prompt: str
     response: str
@@ -20,6 +22,7 @@ class Turn(object):
     timestamp: datetime = field(default_factory=lambda: datetime.now())
 
     def to_json(self):
+        """Convert Turn object to JSON string"""
         data = asdict(self)
         # convert timestamp to string, including date
         data["timestamp"] = data["timestamp"].isoformat()
@@ -27,6 +30,7 @@ class Turn(object):
 
     @staticmethod
     def from_json(json_string):
+        """Convert JSON string to Turn object"""
         data = json.loads(json_string)
         # convert timestamp string to datetime object
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
@@ -36,6 +40,8 @@ class Turn(object):
 # object to store conversation details
 @dataclass
 class ConversationRecord(object):
+    """Object to store a conversation"""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created: datetime = field(default_factory=lambda: datetime.now())
     summary: str = ""
@@ -45,12 +51,14 @@ class ConversationRecord(object):
         self.turns.append(Turn(**kwargs))
 
     def copy(self):
+        """create a deep copy of the conversation record with a new id and timestamp"""
         new_record = deepcopy(self)
         new_record.id = str(uuid.uuid4())
         new_record.created = datetime.now()
         return new_record
 
     def to_json(self) -> str:
+        """Convert ConversationRecord object to JSON string"""
         out = {}
         out["id"] = self.id
         out["summary"] = self.summary
@@ -60,6 +68,7 @@ class ConversationRecord(object):
 
     @staticmethod
     def from_json(json_string):
+        """Convert JSON string to ConversationRecord object"""
         in_json = json.loads(json_string)
         in_json["turns"] = [Turn.from_json(turn) for turn in in_json["turns"]]
         in_json["created"] = datetime.fromisoformat(in_json["created"])

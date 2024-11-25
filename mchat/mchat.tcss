@@ -11,32 +11,44 @@ Header {
 /* Chat Area */
 
 ChatTurn {
-    /* width: 100%; */
-    /* max-width: 1fr; */
-    /* box-sizing: border-box; */
-    /* margin: 1 2;
-    padding: 1 2; */
-
-    /* border: solid gray; */
+    # border: solid yellow; 
     height: auto;
-    /* padding: 1; */
-    /* height: 100%; */
-    /* height: 40; */
+    padding: 1 2;
+}
+
+#chat-container {
+    # border: green;
+
+}
+
+#chatturn-container {
+    height: auto;
+    # border: red;
+}
+
+#chatturn-markdown {
+    # border: green;
+    height: auto;
+    margin: 0 0 0 0;
+}
+
+#right-pane {
+    height: auto;
+    # border: white;
+}
+
+MarkdownParagraph {
+    # border: orange;
+    # padding: 0 0 0 0;
+    margin: 0 0 0 0;
 }
 
 ChatTurn .user {
-    align: right middle;
-    height: auto;
-    /* padding: 1; */
-    /* border: green; */
+    align-horizontal: right;
 }
 
 ChatTurn .assistant {
-    align: left middle;
-    /* margin-top: 1; */
-    # margin-bottom: 0;
-    height: auto;
-    /* border: green; */
+    align-horizontal: left;
 }
 
 .user #chatturn-markdown {
@@ -44,30 +56,28 @@ ChatTurn .assistant {
     /* color: $primary; */
     /* background: $boost; */
     color: $text;
-    padding: 0 0 -1 0;
+    padding: 0 0 0 0;
+
     background: $primary-background;
     border: $primary-background;
-    height: auto;
     width: 70%;
 }
 
 .assistant #chatturn-markdown {
     border: $secondary-background-darken-1;
-    padding: 1 1 0 1;
-    border: none;
+    # padding: 1 1 0 1;
     color: $text;
-    height: auto;
     background: $secondary-background-darken-1;
     width: 70%;
 }
 
-#chat-container {
-    border: round $primary;
-    /* box-sizing: content-box; */
+# #chat-container {
+#     border: round $primary;
+#     /* box-sizing: content-box; */
 
-    /* height: auto; */
-    /* height: 20; */
-}
+#     /* height: auto; */
+#     /* height: 20; */
+# }
 
 #spacer {
     border: red;
@@ -85,11 +95,7 @@ PromptInput {
     margin-right: 1;
     padding-right: 1;
     /* border: round green; */
-}
-
-VerticalScroll PromptInput {
-    height: 10;
-    border: red;
+    # dock: bottom;
 }
 
 /* MultiLineInput is the inputarea inside the scrollbar */

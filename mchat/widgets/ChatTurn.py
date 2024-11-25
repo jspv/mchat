@@ -15,6 +15,16 @@ from textual.geometry import Size
 from webbrowser import open_new_tab
 
 
+"""
+Design:
+
+ChatTurn is a widget that displays a 'turn' in a chat window. Each message
+back and forth will be a different ChatTurn widget. A sequence of ChatTurns 
+is generally displayed in a Vertical container.
+
+"""
+
+
 # Testing using MarkdownWidget instead of a Static rendering Markdown
 class ChatTurn(Widget):
     def __init__(self, message="", role=None, *args, **kwargs) -> None:
@@ -50,7 +60,7 @@ class ChatTurn(Widget):
         """ The widget that was clicked."""
 
 
-class oldChatTurn(Widget, can_focus=True):
+class OldChatTurn(Widget, can_focus=True):
     def __init__(self, message="", role=None, *args, **kwargs) -> None:
         self.message = message
         self.role = role

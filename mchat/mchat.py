@@ -5,24 +5,7 @@ import pyperclip
 
 from config import settings
 
-from typing import Any, Dict, List, Optional
-
-from langchain.callbacks import get_openai_callback
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.callbacks.base import AsyncCallbackHandler, BaseCallbackHandler
-from langchain.schema.messages import messages_to_dict, messages_from_dict
-from langchain.memory import ChatMessageHistory
-from langchain.chat_models import ChatOpenAI, AzureChatOpenAI
-from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
-from langchain.chains import ConversationChain
-from langchain.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-    SystemMessagePromptTemplate,
-    AIMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
-from langchain.schema import SystemMessage, HumanMessage, AIMessage, LLMResult
+from typing import Any, Dict, List, Optional, Callable
 
 from retry import retry
 
@@ -35,6 +18,7 @@ from textual import on, work
 from textual import events
 from textual.message import Message
 from textual.worker import Worker
+from textual_dominfo import DOMInfo
 
 
 from mchat.widgets.ChatTurn import ChatTurn
@@ -43,24 +27,17 @@ from mchat.widgets.PromptInput import PromptInput
 from mchat.widgets.History import HistoryContainer
 from mchat.widgets.Dialog import Dialog
 from mchat.widgets.FilePicker import FilePickerDialog
-
-from mchat.llmtools import ModelManager
+from mchat.llm import AutogenManager, ModelManager
 
 DEFAULT_PERSONA_FILE = "mchat/default_personas.json"
 EXTRA_PERSONA_FILE = "extra_personas.json"
 
-# Tracing settings for debugging
-# os.environ["LANGCHAIN_TRACING"] = "true"
-# os.environ["LANGCHAIN_HANDLER"] = "langchain"
-# os.environ["LANGCHAIN_SESSION"] = "callback_testing"  # This is session
 
-
-class StreamTokenCallback(AsyncCallbackHandler):
+class StreamTokenCallback(object):
     """Callback handler that posts new tokens to the chatbox."""
 
     def __init__(self, app, *args, **kwargs):
         self.app = app
-        super().__init__(*args, **kwargs)
 
     # this method is automatically called by the Langchain callback system when a new
     # token is available
@@ -68,7 +45,7 @@ class StreamTokenCallback(AsyncCallbackHandler):
         self.app.post_message(
             self.app.AddToChatMessage(role="assistant", message=token)
         )
-        await asyncio.sleep(0.05)
+        # await asyncio.sleep(0.05)
 
 
 class ChatApp(App):
@@ -78,14 +55,16 @@ class ChatApp(App):
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
         (
             "ctrl+q",
-            "confirm_y_n('[bold]Quit?[/bold] Y/N', 'quit', 'close_dialog', '[Quit]')",
+            "confirm_y_n('[bold]Quit?[/bold] Y/N', 'my_quit', 'dialog_close', '[Quit]')",
             "Quit",
         ),
         (
             "ctrl+o",
-            "select_file('PDF File to Open', 'show_file', 'close_dialog')",
+            "select_file('PDF File to Open', 'show_file', 'dialog_close')",
             "Open File",
         ),
+        ("ctrl+c", "my_quit", "quit"),
+        ("ctrl+t", "toggle_css_tooltip", "CSS tooltip"),
     ]
 
     # Toggles debug pane on/off (default is off)
@@ -126,6 +105,12 @@ class ChatApp(App):
         # Get an object to manage the AI models
         self.mm = ModelManager()
 
+        # Get an object to manage autogen
+        self.ag = AutogenManager(
+            message_callback=StreamTokenCallback(self).on_llm_new_token,
+            personas=self.personas,
+        )
+
         # load the llm models from settings - name: {key: value,...}
 
         self.available_llm_models = self.mm.available_chat_models
@@ -133,25 +118,6 @@ class ChatApp(App):
 
         self.llm_model_name = self.mm.default_chat_model
         self.llm_temperature = self.mm.default_chat_temperature
-
-        # main chat model
-        self.llm = self.mm.open_model(
-            self.llm_model_name,
-            streaming=True,
-            callbacks=[StreamingStdOutCallbackHandler()],
-        )
-
-        # summary model for memory
-        self.summary_llm = self.mm.open_model(
-            self.mm.default_memory_model,
-            temperature=self.mm.default_memory_model_temperature,
-        )
-
-        self.memory = ConversationSummaryBufferMemory(
-            llm=self.summary_llm,
-            max_token_limit=self.mm.default_memory_model_max_tokens,
-            return_messages=True,
-        )
 
         # Initialize the image model
         self.default_image_model = settings.get("default_image_model", None)
@@ -161,44 +127,31 @@ class ChatApp(App):
                 self.image_model_name, model_type="image"
             )
 
-        # Initialize the conversation chain
+        # Initialize the conversation
         self.default_persona = getattr(settings, "default_persona", "default")
-        self.set_persona(self.default_persona)
+        self.set_persona(
+            self.default_persona, self.llm_model_name, self.llm_temperature
+        )
 
     def _reinitialize_llm_model(self, messages: List[str] = []):
         """re-initialize the language model."""
-        self.llm = self.mm.open_model(
-            self.llm_model_name,
-            streaming=True,
-            callbacks=[StreamingStdOutCallbackHandler()],
-        )
 
+        self.conversation = self.ag.new_conversation(self.current_persona)
         # if there are messages, we're restoring a historical session, create new
         # memory and reinitialize the conversation
         if len(messages) > 0:
-            self.memory = ConversationSummaryBufferMemory(
-                llm=self.summary_llm,
-                max_token_limit=self.mm.default_memory_model_max_tokens,
-                return_messages=True,
-                chat_memory=ChatMessageHistory(messages=messages_from_dict(messages)),
-            )
-            debug_pane = self.query_one(DebugPane)
-            debug_pane.update_entry(
-                "history", lambda: self.memory.load_memory_variables({})["history"]
-            )
-            debug_pane.update_entry(
-                "summary_buffer",
-                lambda: self.memory.moving_summary_buffer,
-            )
-
-        self.conversation = ConversationChain(
-            llm=self.llm,
-            verbose=False,
-            prompt=self.prompt,
-            memory=self.memory,
-        )
+            self.ag.update_memory(messages)
 
         debug_pane = self.query_one(DebugPane)
+
+        # debug_pane.update_entry(
+        #     "history", lambda: self.memory.load_memory_variables({})["history"]
+        # )
+        # debug_pane.update_entry(
+        #     "summary_buffer",
+        #     lambda: self.memory.moving_summary_buffer,
+        # )
+
         debug_pane.update_status()
 
     def _reinitialize_image_model(self):
@@ -217,10 +170,8 @@ class ChatApp(App):
         yield Header()
         with Horizontal():
             yield DebugPane()
-            yield HistoryContainer(
-                new_label="New Session", summary_model=self.summary_llm
-            )
-            with Vertical():
+            yield HistoryContainer(new_label="New Session")
+            with Vertical(id="right-pane"):
                 self.chat_container = VerticalScroll(id="chat-container")
                 yield self.chat_container
                 yield PromptInput()
@@ -253,26 +204,30 @@ class ChatApp(App):
             "question", "Question", lambda: self._current_question, collapsed=True
         )
         debug_pane.add_entry(
-            "prompt", "Prompt", lambda: self.app.conversation.prompt, collapsed=True
+            "prompt", "Prompt", lambda: self.app.ag.prompt, collapsed=True
         )
+        # debug_pane.add_entry(
+        #     "history",
+        #     "History",
+        #     lambda: self.memory.load_memory_variables({})["history"],
+        #     collapsed=True,
+        # )
         debug_pane.add_entry(
-            "history",
-            "History",
-            lambda: self.memory.load_memory_variables({})["history"],
+            # "memref", "Memory Reference", lambda: self.memory, collapsed=True
+            "memref",
+            "Memory Reference",
+            lambda: self.ag.memory,
             collapsed=True,
         )
-        debug_pane.add_entry(
-            "memref", "Memory Reference", lambda: self.memory, collapsed=True
-        )
-        debug_pane.add_entry(
-            "summary_buffer",
-            "Summary Buffer",
-            lambda: self.memory.moving_summary_buffer,
-            collapsed=True,
-        )
+        # debug_pane.add_entry(
+        #     "summary_buffer",
+        #     "Summary Buffer",
+        #     lambda: self.memory.moving_summary_buffer,
+        #     collapsed=True,
+        # )
         debug_pane.add_entry("log", "Debug Log", lambda: self.debug_log)
 
-        # monkey patch the debug logger so we cat watch app logs in the debug pane
+        # monkey patch the debug logger so we can watch app logs in the debug pane
         app_debug_logger = self.log.debug
 
         def update_log(msg):
@@ -297,13 +252,15 @@ class ChatApp(App):
     @on(PromptInput.Submitted)
     def submit_question(self, event: events) -> None:
         input = self.query_one(PromptInput)
-        self.post_message(self.AddToChatMessage(role="user", message=event.value))
+
+        # don't post "new" or "new session" commands to the chatbox
+        if event.value.lower() != "new" and event.value.lower() != "new session":
+            self.post_message(self.AddToChatMessage(role="user", message=event.value))
 
         # clear the input box
         input.value = ""
 
         # ask_question is a work function, so it will be run in a separate thread
-
         self.ask_question(event.value)
         self.post_message(self.EndChatTurn(role="user"))
 
@@ -339,13 +296,18 @@ class ChatApp(App):
         noconfirm_action: str = "close_dialog",
     ) -> None:
         """Open the file picker dialog"""
-        # TODO - Add filter
         file_picker = self.query_one("#file_picker", FilePickerDialog)
         file_picker.message = message
         file_picker.confirm_action = confirm_action
         file_picker.noconfirm_action = noconfirm_action
         file_picker.allowed_extensions = [".pdf"]
         file_picker.show_dialog()
+
+    def action_my_quit(self) -> None:
+        """Quit the app."""
+        self.log.debug("Quitting")
+        print("Quitting")
+        self.app.exit()
 
     def action_show_file(self) -> None:
         """Show the selected file"""
@@ -354,80 +316,48 @@ class ChatApp(App):
             f"File {file_picker.selected_path} was selected by the file picker"
         )
 
-    def count_tokens(self, chain, query):
-        with get_openai_callback() as cb:
-            result = chain.run(query)
-        print(result)
-        print(f"Spent a total of {cb.total_tokens} tokens\n")
-        return result
+    def action_toggle_css_tooltip(self) -> None:
+        """Toggle the CSS tooltip."""
+        DOMInfo.attach_to(self)
+
+    # def count_tokens(self, chain, query):
+    #     with get_openai_callback() as cb:
+    #         result = chain.run(query)
+    #     print(result)
+    #     print(f"Spent a total of {cb.total_tokens} tokens\n")
+    #     return result
 
     def watch__show_debug(self, show_debug: bool) -> None:
         """When __show_debug changes, toggle the class the debug widget."""
         self.app.set_class(show_debug, "-show-debug")
 
-    # there is a bug in actually using templates with the memory object, so we
-    # build the prompt template manually
-
-    # build the prompt template; note: the MessagesPlaceholder is required
-    # to be able to access the history of messages, its variable "history" will be
-    # replaced with the history of messages by the conversation chain as provided by
-    # the memory object.
-    def build_prompt_template(self, persona):
-        base = []
-
-        # Initial system message
-        if len(self.personas[persona]["description"]) > 0:
-            base.append(
-                SystemMessagePromptTemplate.from_template(
-                    self.personas[persona]["description"]
-                )
-            )
-        # Extra system messages
-        for extra in self.personas[persona]["extra_context"]:
-            if extra[0] == "ai":
-                base.append(AIMessagePromptTemplate.from_template(extra[1]))
-            elif extra[0] == "human":
-                base.append(HumanMessagePromptTemplate.from_template(extra[1]))
-            elif extra[0] == "system":
-                base.append(SystemMessagePromptTemplate.from_template(extra[1]))
-            else:
-                raise ValueError(f"Unknown extra context type {extra[0]}")
-
-        # History Placeholder
-        base.append(MessagesPlaceholder(variable_name="history"))
-
-        # Human message
-        base.append(HumanMessagePromptTemplate.from_template("{input}"))
-
-        return ChatPromptTemplate.from_messages(base)
-
-    def set_persona(self, persona: str):
+    def set_persona(self, persona: str, model_name: str = "", temperature: float = 0.0):
         """Set the persona and reinitialize the conversation chain."""
 
         self.current_persona = persona
         if persona not in self.personas:
             raise ValueError(f"Persona '{persona}' not found")
-        # have to rebuild prompt and chain due to
-        # https://github.com/hwchase17/langchain/issues/1800 - can't use templates
-        self.prompt = self.build_prompt_template(persona=persona)
 
-        self.conversation = ConversationChain(
-            llm=self.llm,
-            verbose=False,
-            prompt=self.prompt,
-            memory=self.memory,
+        self.conversation = self.ag.new_conversation(
+            persona=persona, model_name=model_name, temperature=temperature
         )
 
     # Add addtional retry logic to the ask_question function
     @retry(tries=3, delay=1)
-    async def _ask_question_to_llm(
-        self, question: str, callbacks: List[BaseCallbackHandler]
-    ):
+    async def _ask_question_to_llm(self, question: str, callbacks: List[Callable]):
         await self.conversation.arun(question, callbacks=callbacks)
 
     @work(exclusive=True)
     async def ask_question(self, question: str):
-        """Ask a question to the AI and return the response.  Textual work function."""
+        """Read the user's question and take action.  Textual work function."""
+
+        # Figure out what the user wants to do
+        # intent = await self.cm.aget_intent(question, memory=self.memory)
+
+        # intent = self.cm.get_intent(question, memory=self.memory)
+        # self.app.log.debug(f"User intent: {intent}")
+
+        # await self._determine_user_intent(question, memory=self.memory)
 
         # scroll the chat container to the bottom
         self.scroll_to_end()
@@ -472,12 +402,12 @@ class ChatApp(App):
             # start a new history session
             history = self.query_one(HistoryContainer)
             self.record = await history.new_session()
-            self.memory.clear()
+            self.ag.clear_memory()
             self.set_persona(self.default_persona)
-            self.llm_model_name = self.default_llm_model
-            self.llm_temperature = self.default_llm_temperature
+            self.llm_model_name = self.mm.default_chat_model
+            self.llm_temperature = self.mm.default_chat_temperature
             self._reinitialize_llm_model()
-            self.post_message(self.EndChatTurn(role="meta"))
+            # self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question is either 'persona', or 'personas' show the available personas
@@ -628,12 +558,29 @@ class ChatApp(App):
         # Just a normal question at this point
         self._current_question = question
 
-        # ask the question and wait for a response
-        await self._ask_question_to_llm(question, [StreamTokenCallback(self)])
+        # ask the question and wait for a response, the routine is responsible for
+        # posting any tokens to the chatbox via the callback function passed when the
+        # object was created
+        try:
+            await self.ag.ask(question)
+        except Exception as e:
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant", message=f"Error running autogen: {e}"
+                )
+            )
 
         # Done with response; clear the chatbox
         self.scroll_to_end()
         self.post_message(self.EndChatTurn(role="assistant"))
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Called when the worker state changes."""
+
+        # if the worker is done, scroll to the end of the chatbox
+        # if event.state == Worker.State.SUCCESS:
+        #     self.post_message(self.EndChatTurn(role="user"))
+        self.log(event)
 
     def run(self, *args, **kwargs):
         """Run the app."""
@@ -652,12 +599,6 @@ class ChatApp(App):
         """Called when the worker state changes."""
         self.log(event)
 
-    # Built-in Utility functions automatically called by langchain callbacks
-
-    async def new_token_post(self, token: str) -> None:
-        """Post a new token to the chatbox."""
-        self.post_message(self.AddToChatMessage(role="assistant", message=token))
-
     # Custom Message Handlers - these are in two parts:
     # 1. A Message class that is used to send the message and embed data
     # 2. A function that is decorated with @on(MessageClass) that will be called when
@@ -675,11 +616,21 @@ class ChatApp(App):
         chunk = chat_token.message
         role = chat_token.role
 
+        # Todo - find out why this is happening
+        if chunk is None:
+            return
+
+        # if the Chatbox is not mounted, it is in the process of being deleted, so
+        # ignore any messages headed for it
+        if self.chatbox is not None and self.chatbox.is_mounted is False:
+            return
+
         # Create a ChatTurn widget if we don't have one and mount it in the container
         # make sure to scroll to the bottom
         if self.chatbox is None:
             self.chatbox = ChatTurn(role=role)
             await self.chat_container.mount(self.chatbox)
+            # Attach the DOM inspector to the tooltip
             self.chat_container.scroll_end(animate=False)
 
         await self.chatbox.append_chunk(chunk)
@@ -699,16 +650,23 @@ class ChatApp(App):
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
+
+        if self.chatbox is None:
+            self.log("Received EndChatTurn message with no active chatbox")
+            return
+
         # If we hae a response, add the turn to the conversation record
         if event.role == "assistant":
             self.record.add_turn(
                 persona=self.current_persona,
                 prompt=self._current_question,
                 response=self.chatbox.message,
-                summary=self.memory.moving_summary_buffer,
+                # summary=self.memory.moving_summary_buffer,
+                summary=self.ag.memory,
                 model=self.llm_model_name,
                 temperature=self.llm_temperature,
-                memory_messages=messages_to_dict(self.memory.chat_memory.messages),
+                # memory_messages=messages_to_dict(self.ag.memory),
+                memory_messages=self.ag.memory,
             )
 
             history = self.query_one(HistoryContainer)
@@ -725,7 +683,7 @@ class ChatApp(App):
     def _on_history_session_clicked(
         self, event: HistoryContainer.HistorySessionClicked
     ) -> None:
-        """Restore the previous session"""
+        """Restore the selected session"""
 
         event.stop()
 
@@ -738,8 +696,9 @@ class ChatApp(App):
         # if there are no turns in the record, it's a new session
         if len(self.record.turns) == 0:
             self._current_question = ""
-            self.memory.clear()
+            self.ag.clear_memory()
         else:
+            # load the parameters from the last turn and reinitialize
             self.current_persona = self.record.turns[-1].persona
             self.llm_model_name = self.record.turns[-1].model
             self.llm_temperature = self.record.turns[-1].temperature
@@ -759,10 +718,12 @@ class ChatApp(App):
             self.post_message(self.EndChatTurn(role="meta"))
 
 
-def main():
-    app = ChatApp()
+def run():
+    """Run the app"""
     app.run()
 
 
+app = ChatApp()
+
 if __name__ == "__main__":
-    main()
+    run()

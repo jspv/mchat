@@ -20,6 +20,16 @@ _max_context = 128000
 _cost_input = 0.01
 _cost_output = 0.03
 
+[models.chat.gpt-4o]
+api_key = "@format {this.openai_api_key}"
+model = "gpt-4o"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_max_tokens = 40000
+_max_context = 128000
+_cost_input = 0.005
+_cost_output = 0.0015
+
 [models.chat.azure_openai_gpt_35]
 api_key = "@format {this.azure_openai_api_key}"
 api_type = "azure"
@@ -80,7 +90,8 @@ _cost_input = 0.0001
 [defaults]
 
 # chat_model = "gpt-35-turbo"
-chat_model = "azure_openai_gpt_4"
+# chat_model = "azure_openai_gpt_4"
+chat_model = "gpt-4o"
 chat_temperature = 0.7
 persona = "default"
 
@@ -89,8 +100,8 @@ image_model = "dall-e-3"
 embedding_model = "text-embedding-ada-002"
 
 # Using ConversationSummaryBufferMemory - specify model and max_tokens
-# memory_model = "gpt-35-turbo"
-memory_model = "azure_openai_gpt_35"
+memory_model = "gpt-35-turbo"
+# memory_model = "azure_openai_gpt_35"
 memory_model_temperature = 0.1
 memory_model_max_tokens = 2048
 

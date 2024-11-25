@@ -10,11 +10,12 @@ class Dialog(Static):
     """Display a modal dialog"""
 
     _show_dialog = Reactive(False)
-    # DEFAULT_CSS = """
 
-    # /* The top level dialog (a Container) */
+    DEFAULT_CSS = """
 
-    # """
+    /* The top level dialog (a Container) */
+
+    """
 
     BINDINGS = [
         ("y", "run_confirm_binding('dialog_y')", "Yes"),
@@ -64,7 +65,7 @@ class Dialog(Static):
         self.app.set_class(show_dialog, "-show-dialog")
 
     def set_message(self, message: str) -> None:
-        """Update the dialgo message"""
+        """Update the dialog message"""
         self.query_one("#dialog_question", Static).update(message)
 
     def show_dialog(self) -> None:
@@ -72,7 +73,7 @@ class Dialog(Static):
         self._override_focus()
         self._show_dialog = True
 
-    def action_close_dialog(self) -> None:
+    def action_dialog_close(self) -> None:
         """Close the dialog and return bindings"""
         self._restore_bindings()
         self._restore_focus()
@@ -84,6 +85,11 @@ class Dialog(Static):
 
     @confirm_action.setter
     def confirm_action(self, value: str):
+        # if there is no namespace set and action doesn't start with 'dialog_'
+        # assume app namespace
+        if value is not None and not value.startswith("dialog_"):
+            value = f"app.{value}"
+
         self._confirm_action = value
 
     @property
@@ -92,6 +98,9 @@ class Dialog(Static):
 
     @noconfirm_action.setter
     def noconfirm_action(self, value: str):
+        # if there is no namespace set, assume app
+        if value is not None and not value.startswith("dialog_"):
+            value = f"app.{value}"
         self._noconfirm_action = value
 
     def _override_bindings(self):
@@ -118,7 +127,7 @@ class Dialog(Static):
         else:
             raise ValueError
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def _on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         assert button_id is not None
         await self._action_run_confirm_binding(button_id)
