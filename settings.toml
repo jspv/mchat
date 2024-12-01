@@ -100,7 +100,8 @@ image_model = "dall-e-3"
 embedding_model = "text-embedding-ada-002"
 
 # Using ConversationSummaryBufferMemory - specify model and max_tokens
-memory_model = "gpt-35-turbo"
+# memory_model = "gpt-35-turbo"
+memory_model = "gpt-4o"
 # memory_model = "azure_openai_gpt_35"
 memory_model_temperature = 0.1
 memory_model_max_tokens = 2048

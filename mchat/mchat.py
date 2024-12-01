@@ -136,7 +136,12 @@ class ChatApp(App):
     def _reinitialize_llm_model(self, messages: List[str] = []):
         """re-initialize the language model."""
 
-        self.conversation = self.ag.new_conversation(self.current_persona)
+        self.conversation = self.ag.new_conversation(
+            self.current_persona,
+            model_id=self.llm_model_name,
+            temperature=self.llm_temperature,
+        )
+
         # if there are messages, we're restoring a historical session, create new
         # memory and reinitialize the conversation
         if len(messages) > 0:
@@ -338,8 +343,11 @@ class ChatApp(App):
         if persona not in self.personas:
             raise ValueError(f"Persona '{persona}' not found")
 
+        if model_name == "":
+            model_name = self.llm_model_name
+
         self.conversation = self.ag.new_conversation(
-            persona=persona, model_name=model_name, temperature=temperature
+            persona=persona, model_id=model_name, temperature=temperature
         )
 
     # Add addtional retry logic to the ask_question function
@@ -407,7 +415,6 @@ class ChatApp(App):
             self.llm_model_name = self.mm.default_chat_model
             self.llm_temperature = self.mm.default_chat_temperature
             self._reinitialize_llm_model()
-            # self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question is either 'persona', or 'personas' show the available personas
@@ -595,10 +602,6 @@ class ChatApp(App):
             self.chat_container.refresh()
             self.chat_container.scroll_end(animate=False)
 
-    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Called when the worker state changes."""
-        self.log(event)
-
     # Custom Message Handlers - these are in two parts:
     # 1. A Message class that is used to send the message and embed data
     # 2. A function that is decorated with @on(MessageClass) that will be called when
@@ -651,6 +654,8 @@ class ChatApp(App):
     async def end_chat_turn(self, event: EndChatTurn) -> None:
         """Called when the worker state changes."""
 
+        # some situations can cause EndChatTurn to be successively called, so there
+        # may not be an existing chatbox on the second call
         if self.chatbox is None:
             self.log("Received EndChatTurn message with no active chatbox")
             return

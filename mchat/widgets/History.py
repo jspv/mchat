@@ -11,7 +11,7 @@ from rich.text import Text
 from datetime import datetime, timedelta, timezone
 
 from mchat.Conversation import ConversationRecord
-from mchat.llm import ChainManager
+from mchat.llm import LLMTools
 
 import apsw.bestpractice
 
@@ -172,8 +172,6 @@ class HistoryContainer(VerticalScroll):
         super().__init__(*args, **kwargs)
         self.new_label = new_label
 
-        self.cm = ChainManager()
-
     def compose(self) -> None:
         # Open or create the database
         self.connection = self._initialize_db()
@@ -286,7 +284,7 @@ class HistoryContainer(VerticalScroll):
         conversation = []
         for turn in turns:
             conversation.append({"user": turn.prompt, "ai": turn.response})
-        record.summary = await self.cm.aget_summary_label(conversation)
+        record.summary = await LLMTools.aget_summary_label(conversation)
 
         # update the active session
         await self.active_session.update_box(record)

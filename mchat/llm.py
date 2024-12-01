@@ -1,34 +1,19 @@
 from typing import List, Callable, Optional, Dict, Set, List, Union, cast
-from langchain_community.vectorstores import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.chat_models import ChatOpenAI, AzureChatOpenAI
-
 
 # No Dall-e support in langhchain OpenAI, so use the native
 from openai import OpenAI
-from langchain_community.embeddings import AzureOpenAIEmbeddings, OpenAIEmbeddings
 
 import copy
-import re
-import ast
-from io import StringIO
-
-from langchain.prompts import ChatPromptTemplate
-
-
-from langchain_core.output_parsers import StrOutputParser
-
 
 from autogen_agentchat.agents import AssistantAgent
-
-# Creating my own streaming agent - will need ot keep this in sync with autogen
-
 from autogen_agentchat.messages import TextMessage, ToolCallMessage
 from autogen_core.components.model_context import BufferedChatCompletionContext
 from autogen_agentchat.base import Response
 from autogen_core.base import CancellationToken
-from autogen_ext.models import OpenAIChatCompletionClient
+from autogen_ext.models import (
+    OpenAIChatCompletionClient,
+    AzureOpenAIChatCompletionClient,
+)
 from autogen_core.components.models import (
     FunctionExecutionResultMessage,
     LLMMessage,
@@ -36,20 +21,18 @@ from autogen_core.components.models import (
     UserMessage,
     AssistantMessage,
 )
-
+from autogen_core.components.tools import FunctionTool
 from autogen_agentchat.task import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
-
-from operator import itemgetter
 
 from config import settings
 from functools import partial
 import asyncio
-import json
-import os
 
 import logging
 import http.client
+
+from .llmtool_web_search import google_search
 
 logging.basicConfig(filename="debug.log", filemode="w", level=logging.DEBUG)
 requests_log = logging.getLogger("requests.packages.urllib3")
@@ -82,6 +65,7 @@ label_prompt = (
 
 class ModelManager:
     def __init__(self):
+        # Load all the models from the settings
         self.model_configs = settings["models"].to_dict()
         self.chat_config_list = (
             [x for x in self.model_configs["chat"].values()]
@@ -93,13 +77,13 @@ class ModelManager:
             if self.model_configs.get("image", None)
             else []
         )
-
         self.embedding_config_list = (
             [x for x in self.model_configs["embedding"].values()]
             if self.model_configs.get("embedding", None)
             else []
         )
 
+        # Set the default models
         self.default_chat_model = settings.defaults.chat_model
         self.default_image_model = settings.defaults.image_model
         self.default_embedding_model = settings.defaults.embedding_model
@@ -110,7 +94,7 @@ class ModelManager:
         )
         self.default_memory_model_max_tokens = settings.defaults.memory_model_max_tokens
 
-        os.environ["OAI_CONFIG_LIST"] = json.dumps(self.chat_config_list)
+        # os.environ["OAI_CONFIG_LIST"] = json.dumps(self.chat_config_list)
 
     @property
     def available_image_models(self) -> list:
@@ -138,7 +122,7 @@ class ModelManager:
             if config.get("api_type", None) and config["api_type"] == "open_ai":
                 config.pop("api_type")
 
-        # remove all keys that start with _
+        # remove all keys that start with _, these are internal
         config_list = [
             {k: v for k, v in x.items() if not k.startswith("_")} for x in config_list
         ]
@@ -193,39 +177,20 @@ class ModelManager:
             model_kwargs.pop("api_type")
 
             if record["api_type"] == "open_ai":
-                model = ChatOpenAI(**model_kwargs)
+                model = OpenAIChatCompletionClient(
+                    model=model_id, api_key=model_kwargs["api_key"]
+                )
             elif record["api_type"] == "azure":
-                model = AzureChatOpenAI(**model_kwargs)
+                AzureOpenAIChatCompletionClient(
+                    model=model_id, api_key=model_kwargs["api_key"]
+                )
             return model
 
         elif model_type == "image":
             model = DallEAPIWrapper(**model_kwargs)
             return model
-        elif model_type == "embedding":
-            model_kwargs.pop("api_type")
-            if record["api_type"] == "open_ai":
-                model = OpenAIEmbeddings(**model_kwargs)
-            elif record["api_type"] == "azure":
-                model = AzureOpenAIEmbeddings(**model_kwargs)
-            return model
         else:
             raise ValueError("Invalid model_type")
-
-    def pdf_to_vectors(
-        self, pdf_file: str, chunk_size: int = 1000, chunk_overlap: int = 200
-    ) -> list:
-        """Converts a PDF file to a list of vectors"""
-        pdf_loader = PyPDFLoader(pdf_file)
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size, chunk_overlap=chunk_overlap
-        )
-        docs = pdf_loader.load_and_split(text_splitter=text_splitter)
-        print(f"Loaded {len(docs)} documents")
-        embeddings = self.open_model(
-            self.default_embedding_model, model_type="embedding"
-        )
-        vectors = Chroma.from_documents(docs, embedding=embeddings)
-        return vectors
 
 
 class DallEAPIWrapper(object):
@@ -362,22 +327,33 @@ class AutogenManager(object):
             self.agent._model_context.append(msg_type(**msg_args))
 
     def new_conversation(
-        self, persona: dict, model_name: str = "", temperature: float = 0.0
+        self, persona: dict, model_id, temperature: float = 0.0
     ) -> None:
-        """Create a new conversation"""
+        """Intialize a new conversation with the given persona and model
 
-        # This assumes OpenAI, make it smarter TODO
-        self.model_client = OpenAIChatCompletionClient(
-            model=self.config_list[0]["model"],
-            api_key=self.config_list[0]["api_key"],
-        )
+        Parameters
+        ----------
+        persona : dict
+            persona object
+        model_id: str
+            model  to use""
+        temperature : float, optional
+            model temperature setting, by default 0.0
+        """
+
+        self.model_client = self.mm.open_model(model_id)
 
         self._prompt = self._personas[persona]["description"]
+
+        google_search_tool = FunctionTool(
+            google_search,
+            description="Search Google for information, returns results with a snippet and body content",
+        )
 
         self.agent = AssistantAgent(
             name=persona,
             model_client=self.model_client,
-            tools=[self.web_search],
+            tools=[google_search_tool],
             system_message=self.prompt,
             token_callback=self._message_callback,
         )
@@ -401,11 +377,6 @@ class AutogenManager(object):
         self.agent_team = RoundRobinGroupChat(
             [self.agent], termination_condition=termination
         )
-
-    # Define a tool that searches the web for information.
-    async def web_search(query: str) -> str:
-        """Find information on the web"""
-        return "I found some information on the web, the best answer is: http://www.trashcan.org"
 
     async def ask(self, message: str):
         async def assistant_run_stream() -> None:
@@ -432,25 +403,25 @@ class AutogenManager(object):
         # await callback(repr(result), flush=True)
 
 
-class ChainManager:
+class LLMTools:
     def __init__(self):
         """Builds the intent prompt template"""
 
         self.mm = ModelManager()
 
-        # build the intent chain
-        self.intent_chain = (
-            ChatPromptTemplate.from_template(intent_prompt)
-            | self.mm.open_model(self.mm.default_memory_model)
-            | StrOutputParser()
-        )
+        # # build the intent chain
+        # self.intent_chain = (
+        #     ChatPromptTemplate.from_template(intent_prompt)
+        #     | self.mm.open_model(self.mm.default_memory_model)
+        #     | StrOutputParser()
+        # )
 
-        # build the summary chain
-        self.summary_label_chain = (
-            ChatPromptTemplate.from_template(label_prompt)
-            | self.mm.open_model(self.mm.default_memory_model)
-            | StrOutputParser()
-        )
+        # # build the summary chain
+        # self.summary_label_chain = (
+        #     ChatPromptTemplate.from_template(label_prompt)
+        #     | self.mm.open_model(self.mm.default_memory_model)
+        #     | StrOutputParser()
+        # )
 
     async def aget_intent(self, question: str, memory) -> str:
         """Returns the intent of the input"""
@@ -476,11 +447,14 @@ class ChainManager:
         )
         return out
 
-    async def aget_summary_label(self, conversation: str) -> str:
-        """Returns the summary label of the input"""
-
-        out = await self.summary_label_chain.ainvoke({"conversation": conversation})
-        return out
+    @staticmethod
+    async def aget_summary_label(conversation: str) -> str:
+        """Returns the a very short summary of a conversation suitable for a label"""
+        mm = ModelManager()
+        model_client = mm.open_model(mm.default_memory_model)
+        system_message = label_prompt.format(conversation=conversation)
+        out = await model_client.create([SystemMessage(content=system_message)])
+        return out.content
 
     def _parse_chat_history(self, history: list, max_turns: int | None = None) -> list:
         """Parses the chat history into a list of conversation turns"""
