@@ -27,7 +27,7 @@ from mchat.widgets.PromptInput import PromptInput
 from mchat.widgets.History import HistoryContainer
 from mchat.widgets.Dialog import Dialog
 from mchat.widgets.FilePicker import FilePickerDialog
-from mchat.llm import AutogenManager, ModelManager
+from mchat.llm import AutogenManager, ModelManager, LLMTools
 
 DEFAULT_PERSONA_FILE = "mchat/default_personas.json"
 EXTRA_PERSONA_FILE = "extra_personas.json"
@@ -150,9 +150,6 @@ class ChatApp(App):
         debug_pane = self.query_one(DebugPane)
 
         # debug_pane.update_entry(
-        #     "history", lambda: self.memory.load_memory_variables({})["history"]
-        # )
-        # debug_pane.update_entry(
         #     "summary_buffer",
         #     lambda: self.memory.moving_summary_buffer,
         # )
@@ -211,14 +208,8 @@ class ChatApp(App):
         debug_pane.add_entry(
             "prompt", "Prompt", lambda: self.app.ag.prompt, collapsed=True
         )
-        # debug_pane.add_entry(
-        #     "history",
-        #     "History",
-        #     lambda: self.memory.load_memory_variables({})["history"],
-        #     collapsed=True,
-        # )
+
         debug_pane.add_entry(
-            # "memref", "Memory Reference", lambda: self.memory, collapsed=True
             "memref",
             "Memory Reference",
             lambda: self.ag.memory,
@@ -324,13 +315,6 @@ class ChatApp(App):
     def action_toggle_css_tooltip(self) -> None:
         """Toggle the CSS tooltip."""
         DOMInfo.attach_to(self)
-
-    # def count_tokens(self, chain, query):
-    #     with get_openai_callback() as cb:
-    #         result = chain.run(query)
-    #     print(result)
-    #     print(f"Spent a total of {cb.total_tokens} tokens\n")
-    #     return result
 
     def watch__show_debug(self, show_debug: bool) -> None:
         """When __show_debug changes, toggle the class the debug widget."""
@@ -516,9 +500,10 @@ class ChatApp(App):
 
         # if the question starts with 'summary', summarize the conversation
         if question.startswith("summary"):
-            # get the summary
-            summary = str(self.memory.load_memory_variables({}))
-            # post the summary
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="Summarizing...")
+            )
+            summary = await LLMTools.get_conversation_summary(self.record)
             self._current_question = ""
             self.post_message(self.AddToChatMessage(role="assistant", message=summary))
             self.post_message(self.EndChatTurn(role="meta"))

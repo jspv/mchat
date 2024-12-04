@@ -62,6 +62,12 @@ label_prompt = (
     " {conversation}"
 )
 
+summary_prompt = (
+    "Here is a conversation between a Human and AI. Provide a detailed summary of the "
+    "Conversation: "
+    "{conversation}"
+)
+
 
 class ModelManager:
     def __init__(self):
@@ -181,8 +187,12 @@ class ModelManager:
                     model=model_id, api_key=model_kwargs["api_key"]
                 )
             elif record["api_type"] == "azure":
-                AzureOpenAIChatCompletionClient(
-                    model=model_id, api_key=model_kwargs["api_key"]
+                model = AzureOpenAIChatCompletionClient(
+                    model=model_kwargs["model"],
+                    azure_deployment=model_kwargs["azure_deployment"],
+                    api_key=model_kwargs["api_key"],
+                    api_version=model_kwargs["api_version"],
+                    azure_endpoint=model_kwargs["azure_endpoint"],
                 )
             return model
 
@@ -453,6 +463,15 @@ class LLMTools:
         mm = ModelManager()
         model_client = mm.open_model(mm.default_memory_model)
         system_message = label_prompt.format(conversation=conversation)
+        out = await model_client.create([SystemMessage(content=system_message)])
+        return out.content
+
+    @staticmethod
+    async def get_conversation_summary(conversation: str) -> str:
+        """Returns the summary of a conversation"""
+        mm = ModelManager()
+        model_client = mm.open_model(mm.default_memory_model)
+        system_message = summary_prompt.format(conversation=conversation)
         out = await model_client.create([SystemMessage(content=system_message)])
         return out.content
 
