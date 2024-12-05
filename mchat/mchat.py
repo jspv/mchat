@@ -98,7 +98,7 @@ class ChatApp(App):
         if os.path.exists(EXTRA_PERSONA_FILE):
             import json
 
-            with open(EXTRA_PERSONA_FILE) as f:
+            with open(EXTRA_PERSONA_FILE, encoding="UTF-8") as f:
                 extra_personas = json.load(f)
             self.personas.update(extra_personas)
 
