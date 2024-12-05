@@ -21,9 +21,9 @@ pytz = "^2023.3.post1"
 pypdf = "^3.17.2"
 chromadb = "^0.4.19"
 textual-dominfo = "^0.1.0"
-autogen-core = "0.4.0.dev8"
-autogen-ext = "0.4.0.dev8"
-autogen-agentchat = {path = "../autogen/python/packages/autogen-agentchat"}
+autogen-core = { path = "../autogen/python/packages/autogen-core", develop=true }
+autogen-ext = { path = "../autogen/python/packages/autogen-ext" , develop=true}
+autogen-agentchat = { path = "../autogen/python/packages/autogen-agentchat" , develop=true}
 pydantic = "2.9.2"
 
 [tool.poetry.scripts]

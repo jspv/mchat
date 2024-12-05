@@ -670,7 +670,7 @@ class ChatApp(App):
         self.chatbox = None
 
     @on(HistoryContainer.HistorySessionClicked)
-    def _on_history_session_clicked(
+    async def _on_history_session_clicked(
         self, event: HistoryContainer.HistorySessionClicked
     ) -> None:
         """Restore the selected session"""
@@ -699,6 +699,7 @@ class ChatApp(App):
         self.chat_container.remove_children()
 
         # load the chat history from the record
+        self.chat_container.visible = False
         for turn in self.record.turns:
             self.post_message(self.AddToChatMessage(role="user", message=turn.prompt))
             self.post_message(self.EndChatTurn(role="meta"))
@@ -706,6 +707,8 @@ class ChatApp(App):
                 self.AddToChatMessage(role="assistant", message=turn.response)
             )
             self.post_message(self.EndChatTurn(role="meta"))
+        self.scroll_to_end()
+        self.chat_container.visible = True
 
 
 def run():

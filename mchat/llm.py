@@ -7,9 +7,8 @@ import copy
 
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.messages import TextMessage, ToolCallMessage
-from autogen_core.components.model_context import BufferedChatCompletionContext
 from autogen_agentchat.base import Response
-from autogen_core.base import CancellationToken
+from autogen_core import CancellationToken
 from autogen_ext.models import (
     OpenAIChatCompletionClient,
     AzureOpenAIChatCompletionClient,
@@ -22,7 +21,7 @@ from autogen_core.components.models import (
     AssistantMessage,
 )
 from autogen_core.components.tools import FunctionTool
-from autogen_agentchat.task import MaxMessageTermination
+from autogen_agentchat.conditions import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 
 from config import settings
