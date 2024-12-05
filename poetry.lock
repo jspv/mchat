@@ -4816,17 +4816,18 @@ typing = ["mypy (>=1.6,<2.0)", "traitlets (>=5.11.1)"]
 
 [[package]]
 name = "textual"
-version = "0.70.0"
+version = "0.88.1"
 description = "Modern Text User Interface framework"
 optional = false
-python-versions = "<4.0,>=3.8"
+python-versions = "<4.0.0,>=3.8.1"
 files = [
-    {file = "textual-0.70.0-py3-none-any.whl", hash = "sha256:774bf45782193760ca273b915fd685cada37d0836237d61dc57d5bcdbe2c7ddb"},
-    {file = "textual-0.70.0.tar.gz", hash = "sha256:9ca3f615b5cf442246325e40ef8255424c42b4241d3c62f9c0f96951bab82b1e"},
+    {file = "textual-0.88.1-py3-none-any.whl", hash = "sha256:f2db8ce892007f724dab57a2b791e55f9d7ce04d333c50fb4b6fb7f3990d4cec"},
+    {file = "textual-0.88.1.tar.gz", hash = "sha256:9c56d953dc7d1a8ddf06acc910d9224027e02416551f92920e70f435bd28e062"},
 ]
 
 [package.dependencies]
 markdown-it-py = {version = ">=2.1.0", extras = ["linkify", "plugins"]}
+platformdirs = ">=3.6.0,<5"
 rich = ">=13.3.3"
 typing-extensions = ">=4.4.0,<5.0.0"
 
@@ -5649,4 +5650,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "a73773bce69a99fdf5e998789fe1dab5b67fe645cd8eb9b66a8c62744d191fd7"
+content-hash = "ad986905bbdfb552873deaa1f0271904a14d9b5b10e9c025b98a208103984ed6"

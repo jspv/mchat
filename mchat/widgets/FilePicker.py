@@ -1,5 +1,5 @@
 from textual.app import ComposeResult
-from textual.binding import Binding, _Bindings
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import Reactive
 from textual.widget import Widget
@@ -321,7 +321,8 @@ class FilePickerDialog(Widget):
                 priority=True,
             ),
         ]
-        self.app._bindings = _Bindings(newbindings)
+        # JSP Fix this, cant set bindings this way anymore
+        # self.app._bindings = _Bindings(newbindings)
 
     def _restore_bindings(self):
         """Restore bindings to what they were before we stole them"""

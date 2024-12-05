@@ -1,5 +1,5 @@
 from textual.app import ComposeResult
-from textual.binding import Binding, _Bindings
+from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.reactive import Reactive
 from textual.widgets import Button, Static
@@ -116,7 +116,8 @@ class Dialog(Static):
                 priority=True,
             ),
         ]
-        self.app._bindings = _Bindings(newbindings)
+        # jsp updating textual, this way to set bindigns doesn't work anymore
+        # self.app._bindings = _Bindings(newbindings)
 
     async def _action_run_confirm_binding(self, answer: str):
         """When someone presses a button, directly run the associated binding"""
