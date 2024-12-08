@@ -50,6 +50,7 @@ class StreamTokenCallback(object):
 
 class ChatApp(App):
     CSS_PATH = "mchat.tcss"
+    SCREENS = {"dialog": Dialog, "file_picker": FilePickerDialog}
     BINDINGS = [
         ("ctrl+r", "toggle_dark", "Toggle dark mode"),
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
@@ -178,8 +179,6 @@ class ChatApp(App):
                 yield self.chat_container
                 yield PromptInput()
         yield Footer()
-        yield Dialog(id="modal_dialog")
-        yield FilePickerDialog(id="file_picker")
 
     def on_mount(self) -> None:
         self.title = "mchat - Multi-Model Chatbot"
@@ -279,25 +278,27 @@ class ChatApp(App):
         self, message: str, confirm_action: str, noconfirm_action: str, title: str = ""
     ) -> None:
         """Build Yes/No Modal Dialog and process callbacks."""
+        self.app.push_screen("dialog")
         dialog = self.query_one("#modal_dialog", Dialog)
+        dialog.set_message(message)
         dialog.confirm_action = confirm_action
         dialog.noconfirm_action = noconfirm_action
-        dialog.set_message(message)
-        dialog.show_dialog()
 
-    def action_select_file(
+    async def action_select_file(
         self,
         message: str = "Select a file to open",
         confirm_action: str = "close_dialog",
         noconfirm_action: str = "close_dialog",
     ) -> None:
         """Open the file picker dialog"""
+        waiter = self.push_screen("file_picker")
         file_picker = self.query_one("#file_picker", FilePickerDialog)
         file_picker.message = message
         file_picker.confirm_action = confirm_action
         file_picker.noconfirm_action = noconfirm_action
+        # wait for the file picker to be mounted before setting the allowed extensions
+        await waiter
         file_picker.allowed_extensions = [".pdf"]
-        file_picker.show_dialog()
 
     def action_my_quit(self) -> None:
         """Quit the app."""
