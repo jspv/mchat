@@ -291,13 +291,11 @@ class ChatApp(App):
         noconfirm_action: str = "close_dialog",
     ) -> None:
         """Open the file picker dialog"""
-        waiter = self.push_screen("file_picker")
+        self.push_screen("file_picker")
         file_picker = self.query_one("#file_picker", FilePickerDialog)
         file_picker.message = message
         file_picker.confirm_action = confirm_action
         file_picker.noconfirm_action = noconfirm_action
-        # wait for the file picker to be mounted before setting the allowed extensions
-        await waiter
         file_picker.allowed_extensions = [".pdf"]
 
     def action_my_quit(self) -> None:

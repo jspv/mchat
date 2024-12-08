@@ -1,3 +1,4 @@
+from typing import List
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -5,6 +6,7 @@ from textual.widget import Widget
 from textual.widgets import Button, Static, DirectoryTree
 from textual.message import Message
 from textual.events import Click
+from textual.css.query import NoMatches
 from textual import on
 from dataclasses import dataclass
 
@@ -32,8 +34,9 @@ class FilteredDirectoryTree(DirectoryTree):
                 returned.append(path)
         return returned
 
-    def __init__(self, path: Path, **kwargs):
+    def __init__(self, path: Path, extensions: List[str] = [], **kwargs):
         absolute_path = str(Path(path).absolute())
+        self.extensions = extensions
         super().__init__(path=absolute_path, **kwargs)
 
 
@@ -127,10 +130,12 @@ class FilePickerDialog(ModalScreen):
         noconfirm_action: str | None = None,
         name: str | None = None,
         id: str | None = "file_picker",
+        extensions: List[str] = [],
         classes: str | None = None,
     ):
         self.confirm_action = confirm_action
         self.noconfirm_action = noconfirm_action
+        self.extensions = extensions
         # actual message will be set using set_message()
         self._message = ""
 
@@ -138,16 +143,16 @@ class FilePickerDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="file_picker_dialog"):
-            yield Vertical(
-                Static(self.message, id="file_picker_dialog_question"),
-                VerticalScroll(DirUpButton(), FilteredDirectoryTree(self.current_path)),
-                Horizontal(
-                    Button("OK", variant="success", disabled=True, id="dialog_y"),
-                    Button("Cancel", variant="error", id="dialog_n"),
-                    classes="file_picker_dialog_buttons",
-                ),
-                id="file_picker_dialog",
-            )
+            with Vertical():
+                yield Static(self.message, id="file_picker_dialog_question")
+                with VerticalScroll():
+                    yield DirUpButton()
+                    yield FilteredDirectoryTree(
+                        self.current_path, extensions=self.extensions
+                    )
+                with Horizontal(classes="file_picker_dialog_buttons"):
+                    yield Button("OK", variant="success", disabled=True, id="dialog_y")
+                    yield Button("Cancel", variant="error", id="dialog_n")
 
     # Custom Messages
 
@@ -270,9 +275,16 @@ class FilePickerDialog(ModalScreen):
 
     @allowed_extensions.setter
     def allowed_extensions(self, value: list[str]):
-        tree = self.query_one(FilteredDirectoryTree)
+        self.extensions = value
+        try:
+            tree = self.query_one(FilteredDirectoryTree)
+        # the tree may not be mounted yet, if not, do nothing it will get the
+        # extensions via self.extesions whne it is mounted
+        except NoMatches:
+            return
         tree.extensions = value
         tree.reload()
+        # set both the dialog and tree extensions
 
     @property
     def show_dirs(self):
