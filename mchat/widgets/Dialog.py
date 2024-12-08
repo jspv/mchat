@@ -1,19 +1,43 @@
+from textual.screen import ModalScreen
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal
-from textual.reactive import Reactive
 from textual.widgets import Button, Static
-from textual.message import Message
 
 
-class Dialog(Static):
+class Dialog(ModalScreen):
     """Display a modal dialog"""
-
-    _show_dialog = Reactive(False)
 
     DEFAULT_CSS = """
 
-    /* The top level dialog (a Container) */
+        Dialog Container {
+            border: round $primary;
+            box-sizing: border-box;
+            background: $boost;
+            width: auto;
+            height: auto;
+        }
+
+        /* Matches the question text in the button */
+        #dialog_question {
+            text-style: bold;
+            width: 100%;
+            height: auto;
+            content-align: center middle;
+            margin: 0 0 2 0;
+        }
+
+        /* Matches the container holding the dialog buttons */
+        .dialog_buttons {
+            align: center middle;
+            height: auto;
+            width: auto;
+            /* border: wide red; */
+        }
+
+        /* The button class */
+        Dialog Button {
+            margin: 0 4;
+        }
 
     """
 
@@ -27,57 +51,33 @@ class Dialog(Static):
         confirm_action: str | None = None,
         noconfirm_action: str | None = None,
         name: str | None = None,
-        id: str | None = None,
+        id: str | None = "modal_dialog",
         classes: str | None = None,
     ):
         self.confirm_action = confirm_action
         self.noconfirm_action = noconfirm_action
         # actual message will be set using set_message()
-        self.message = ""
-
-        # list to save and restore focus for modal dialogs
-        self._focuslist = []
-        self._focus_save = None
-        self._bindings_stack = []
-
+        self._message = "This is a modal dialog"
         super().__init__(name=name, id=id, classes=classes)
 
-    class FocusMessage(Message):
-        """Message to inform the app that Focus has been taken"""
-
-        def __init__(self, focustaken=True) -> None:
-            self.focustaken = focustaken
-            super().__init__()
-
     def compose(self) -> ComposeResult:
-        yield Container(
-            Static(self.message, id="dialog_question"),
-            Horizontal(
-                Button("Yes", variant="success", id="dialog_y"),
-                Button("No", variant="error", id="dialog_n"),
-                classes="dialog_buttons",
-            ),
-            id="dialog",
-        )
-
-    def watch__show_dialog(self, show_dialog: bool) -> None:
-        """Called when _show_dialog is modified"""
-        self.app.set_class(show_dialog, "-show-dialog")
+        with Container(id="dialog"):
+            yield Static(self._message, id="dialog_question")
+            with Horizontal(classes="dialog_buttons"):
+                yield Button("Yes", variant="success", id="dialog_y")
+                yield Button("No", variant="error", id="dialog_n")
 
     def set_message(self, message: str) -> None:
         """Update the dialog message"""
-        self.query_one("#dialog_question", Static).update(message)
+        self._message = message
+        # self.query_one("#dialog_question", Static).update(message)
 
     def show_dialog(self) -> None:
-        self._override_bindings()
-        self._override_focus()
-        self._show_dialog = True
+        pass
 
     def action_dialog_close(self) -> None:
         """Close the dialog and return bindings"""
-        self._restore_bindings()
-        self._restore_focus()
-        self._show_dialog = False
+        self.app.pop_screen()
 
     @property
     def confirm_action(self):
@@ -103,22 +103,6 @@ class Dialog(Static):
             value = f"app.{value}"
         self._noconfirm_action = value
 
-    def _override_bindings(self):
-        """Force bindings for the dialog"""
-        self._bindings_stack.append(self.app._bindings)
-        newbindings = [
-            Binding(
-                key="ctrl+c",
-                action="quit",
-                description="",
-                show=False,
-                key_display=None,
-                priority=True,
-            ),
-        ]
-        # jsp updating textual, this way to set bindigns doesn't work anymore
-        # self.app._bindings = _Bindings(newbindings)
-
     async def _action_run_confirm_binding(self, answer: str):
         """When someone presses a button, directly run the associated binding"""
         if answer == "dialog_y":
@@ -132,25 +116,3 @@ class Dialog(Static):
         button_id = event.button.id
         assert button_id is not None
         await self._action_run_confirm_binding(button_id)
-
-    def _restore_bindings(self):
-        if len(self._bindings_stack) > 0:
-            self.app._bindings = self._bindings_stack.pop()
-
-    def _override_focus(self):
-        """remove focus for everything, force it to the dialog"""
-        self._focus_save = self.app.focused
-        for widget in self.app.screen.focus_chain:
-            self._focuslist.append(widget)
-            widget.can_focus = False
-        self.can_focus = True
-        self.focus()
-        self.post_message(self.FocusMessage(focustaken=True))
-
-    def _restore_focus(self):
-        """restore focus to what it was before we stole it"""
-        while len(self._focuslist) > 0:
-            self._focuslist.pop().can_focus = True
-        if self._focus_save is not None:
-            self.app.set_focus(self._focus_save)
-        self.post_message(self.FocusMessage(focustaken=False))

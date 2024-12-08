@@ -1,7 +1,6 @@
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.reactive import Reactive
+from textual.screen import ModalScreen
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Button, Static, DirectoryTree
 from textual.message import Message
@@ -50,20 +49,18 @@ class DirUpButton(Static):
         self.post_message(FilePickerDialog.ChildClicked(self, "dirup"))
 
 
-class FilePickerDialog(Widget):
+class FilePickerDialog(ModalScreen):
     """Display a modal dialog"""
 
     DEFAULT_CSS = """
 
-        FilePickerDialog {
-            display: none;
-            layer: above;
+        FilePickerDialog Container{
+            border: round $primary;
+            box-sizing: border-box;
+            background: $boost;
             height: auto;
             max-height: 80%;
             width: auto;
-            border: round $secondary;
-            box-sizing: border-box;
-            background: $boost;
         }
 
         FilePickerDialog Horizontal {
@@ -113,14 +110,7 @@ class FilePickerDialog(Widget):
             margin: 0 4;
         }
 
-        # Put the folloiwng in your app's CSS to allow the dialog to be shown
-        .-show-file_picker_dialog FilePickerDialog {
-            display: block;
-        }
-
     """
-
-    _show_dialog = Reactive(False)
 
     BINDINGS = [
         ("y", "run_confirm_binding('dialog_y')", "OK"),
@@ -136,7 +126,7 @@ class FilePickerDialog(Widget):
         confirm_action: str | None = None,
         noconfirm_action: str | None = None,
         name: str | None = None,
-        id: str | None = None,
+        id: str | None = "file_picker",
         classes: str | None = None,
     ):
         self.confirm_action = confirm_action
@@ -144,32 +134,22 @@ class FilePickerDialog(Widget):
         # actual message will be set using set_message()
         self._message = ""
 
-        # list to save and restore focus for modal dialogs
-        self._focuslist = []
-        self._focus_save = None
-        self._bindings_stack = []
-
         super().__init__(name=name, id=id, classes=classes)
 
     def compose(self) -> ComposeResult:
-        yield Vertical(
-            Static(self.message, id="file_picker_dialog_question"),
-            VerticalScroll(DirUpButton(), FilteredDirectoryTree(self.current_path)),
-            Horizontal(
-                Button("OK", variant="success", disabled=True, id="dialog_y"),
-                Button("Cancel", variant="error", id="dialog_n"),
-                classes="file_picker_dialog_buttons",
-            ),
-            id="file_picker_dialog",
-        )
+        with Container(id="file_picker_dialog"):
+            yield Vertical(
+                Static(self.message, id="file_picker_dialog_question"),
+                VerticalScroll(DirUpButton(), FilteredDirectoryTree(self.current_path)),
+                Horizontal(
+                    Button("OK", variant="success", disabled=True, id="dialog_y"),
+                    Button("Cancel", variant="error", id="dialog_n"),
+                    classes="file_picker_dialog_buttons",
+                ),
+                id="file_picker_dialog",
+            )
 
     # Custom Messages
-
-    @dataclass
-    class FocusMessage(Message):
-        """Message to inform the app that Focus has been taken"""
-
-        focustaken: bool = True
 
     @dataclass
     class ChildClicked(Message):
@@ -223,23 +203,18 @@ class FilePickerDialog(Widget):
     def message(self, value: str):
         """Update the dialog message"""
         self._message = value
-        self.query_one("#file_picker_dialog_question", Static).update(self._message)
+        # self.query_one("#file_picker_dialog_question", Static).update(self._message)
 
     def show_dialog(self) -> None:
         """Show the filepicker"""
-        self._override_bindings()
-        self._override_focus()
         # reload the tree as filter may have changed
         tree = self.query_one(FilteredDirectoryTree)
         tree.path = self.current_path
         tree.reload()
-        self._show_dialog = True
 
     def action_close_dialog(self) -> None:
         """Close the dialog and return bindings"""
-        self._restore_bindings()
-        self._restore_focus()
-        self._show_dialog = False
+        self.app.pop_screen()
 
     def _action_go_up_tree(self) -> None:
         """Go up a directory, but only if directory traversal is enabled"""
@@ -297,6 +272,7 @@ class FilePickerDialog(Widget):
     def allowed_extensions(self, value: list[str]):
         tree = self.query_one(FilteredDirectoryTree)
         tree.extensions = value
+        tree.reload()
 
     @property
     def show_dirs(self):
@@ -307,27 +283,7 @@ class FilePickerDialog(Widget):
     def show_dirs(self, value: bool):
         tree = self.query_one(FilteredDirectoryTree)
         tree.show_dirs = value
-
-    def _override_bindings(self):
-        """Force bindings for the dialog"""
-        self._bindings_stack.append(self.app._bindings)
-        newbindings = [
-            Binding(
-                key="ctrl+c",
-                action="quit",
-                description="",
-                show=False,
-                key_display=None,
-                priority=True,
-            ),
-        ]
-        # JSP Fix this, cant set bindings this way anymore
-        # self.app._bindings = _Bindings(newbindings)
-
-    def _restore_bindings(self):
-        """Restore bindings to what they were before we stole them"""
-        if len(self._bindings_stack) > 0:
-            self.app._bindings = self._bindings_stack.pop()
+        tree.reload()
 
     async def _action_run_confirm_binding(self, answer: str):
         """When someone presses a button or key, directly run the associated binding"""
@@ -347,23 +303,3 @@ class FilePickerDialog(Widget):
                 self.action_close_dialog()
         else:
             raise ValueError
-
-    def _override_focus(self):
-        """remove focus for everything, force it to the dialog"""
-        self._focus_save = self.app.focused
-        for widget in self.app.screen.focus_chain:
-            self._focuslist.append(widget)
-            widget.can_focus = False
-        self.can_focus = True
-        # put focus on the tree
-        tree = self.query_one(FilteredDirectoryTree)
-        tree.focus()
-        self.post_message(self.FocusMessage(focustaken=True))
-
-    def _restore_focus(self):
-        """restore focus to what it was before we stole it"""
-        while len(self._focuslist) > 0:
-            self._focuslist.pop().can_focus = True
-        if self._focus_save is not None:
-            self.app.set_focus(self._focus_save)
-        self.post_message(self.FocusMessage(focustaken=False))
