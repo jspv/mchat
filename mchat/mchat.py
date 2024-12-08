@@ -553,6 +553,7 @@ class ChatApp(App):
         # posting any tokens to the chatbox via the callback function passed when the
         # object was created
         try:
+            # self.ag.stream_tokens = False
             await self.ag.ask(question)
         except Exception as e:
             self.post_message(

@@ -6,8 +6,13 @@ from openai import OpenAI
 import copy
 
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.messages import TextMessage, ToolCallMessage
-from autogen_agentchat.base import Response
+from autogen_agentchat.messages import (
+    TextMessage,
+    AgentMessage,
+    ToolCallMessage,
+    ToolCallResultMessage,
+)
+from autogen_agentchat.base import Response, TaskResult
 from autogen_core import CancellationToken
 from autogen_ext.models import (
     OpenAIChatCompletionClient,
@@ -258,10 +263,19 @@ class DallEAPIWrapper(object):
 
 
 class AutogenManager(object):
-    def __init__(self, message_callback: Callable | None = None, personas: dict = {}):
+    def __init__(
+        self,
+        message_callback: Callable | None = None,
+        personas: dict = {},
+        stream_tokens: bool = True,
+    ):
         self.mm = ModelManager()
         self._message_callback = message_callback
         self._personas = personas
+        self._stream_tokens = stream_tokens
+
+        # Will be used to cancel ongoing tasks
+        self._cancelation_token = None
 
         # Load LLM inference endpoints from an environment variable or a file
         self.config_list = self.mm.make_autogen_config_list(
@@ -296,6 +310,21 @@ class AutogenManager(object):
             )
             for m in self.agent._model_context
         ]
+
+    @property
+    def stream_tokens(self) -> bool:
+        """Returns the current stream token"""
+        return self._stream_tokens
+
+    @stream_tokens.setter
+    def stream_tokens(self, value: bool) -> None:
+        """Set the stream token"""
+        self._stream_tokens = value
+        # Set the token callback in the agent if the value is True
+        if value:
+            self.agent._token_callback = self._message_callback
+        else:
+            self.agent._token_callback = None
 
     def clear_memory(self) -> None:
         """Clear the memory"""
@@ -387,7 +416,7 @@ class AutogenManager(object):
             [self.agent], termination_condition=termination
         )
 
-    async def ask(self, message: str):
+    async def ask(self, message: str) -> None:
         async def assistant_run_stream() -> None:
             async for response in self.agent.on_messages_stream(
                 [TextMessage(content=message, source="user")],
@@ -406,10 +435,40 @@ class AutogenManager(object):
                 cancellation_token=CancellationToken(),
             )
 
+        async def team_run_stream(task: str) -> None:
+            # Generate a cancelation token
+            self._cancelation_token = CancellationToken()
+
+            async for response in self.agent_team.run_stream(
+                task=message, cancellation_token=self._cancelation_token
+            ):
+                if isinstance(response, TextMessage):
+                    if response.source == "user":
+                        # ignore these, it is a repeat of the user message
+                        continue
+                    elif self.stream_tokens:
+                        # ingore these, they are tokens which are being streamed
+                        continue
+                    else:
+                        await self._message_callback(response.content)
+                        continue
+                if isinstance(response, ToolCallMessage):
+                    await self._message_callback(
+                        f"calling {response.content[0].name}..."
+                    )
+                    continue
+                if isinstance(response, ToolCallResultMessage):
+                    await self._message_callback("done\n\n")
+                    continue
+                if isinstance(response, TaskResult):
+                    continue
+                if response is None:
+                    continue
+                await self._message_callback("\n\n<unknown>\n\n", flush=True)
+                await self._message_callback(repr(response), flush=True)
+
         # tokens are returned via the callback
-        result = await self.agent_team.run(task=message)
-        # await callback("done with run", flush=True)
-        # await callback(repr(result), flush=True)
+        await team_run_stream(task=message)
 
 
 class LLMTools:
