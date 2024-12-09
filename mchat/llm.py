@@ -20,6 +20,7 @@ from autogen_ext.models import (
 )
 from autogen_core.components.models import (
     FunctionExecutionResultMessage,
+    FunctionExecutionResult,
     LLMMessage,
     SystemMessage,
     UserMessage,
@@ -302,14 +303,26 @@ class AutogenManager(object):
     def memory(self) -> str:
         """Returns the current memory in a recoverable text format"""
         # (class, content, source)
-        return [
-            (
-                repr(type(m)),
-                getattr(m, "content", None),
-                getattr(m, "source", None),
-            )
-            for m in self.agent._model_context
-        ]
+        messages = []
+        for m in self.agent._model_context:
+            # FunctionExcecutionResult is the content of FunctionExecutionResultMessage
+            if isinstance(m, FunctionExecutionResultMessage):
+                messages.append(
+                    (
+                        repr(type(m.content[0])),
+                        m.content[0].content,
+                        m.content[0].call_id,
+                    )
+                )
+            else:
+                messages.append(
+                    (
+                        repr(type(m)),
+                        getattr(m, "content", None),
+                        getattr(m, "source", None),
+                    )
+                )
+        return messages
 
     @property
     def stream_tokens(self) -> bool:
@@ -354,10 +367,13 @@ class AutogenManager(object):
             elif objectname.endswith("ToolCallMessage'>"):
                 msg_type = ToolCallMessage
                 msg_args = {"content": content, "source": source}
-            elif objectname.endswith("FunctionExecutionResultMessage'>"):
+            elif objectname.endswith("FunctionExecutionResult'>"):
                 msg_type = FunctionExecutionResultMessage
-                msg_args = {"content": content}
-
+                msg_args = {
+                    "content": [
+                        FunctionExecutionResult(call_id=source, content=content)
+                    ]
+                }
             else:
                 raise ValueError(f"Unexpected message type: {objectname}")
 
