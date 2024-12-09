@@ -367,6 +367,7 @@ class ChatApp(App):
                         " - model <model>: set the model\n"
                         " - temperature <temperature>: set the temperature\n"
                         " - summary: summarize the conversation\n"
+                        " - stream [on|off]: turn stream tokens on or off\n"
                         " - dall-e <prompt>: generate an image from the prompt\n"
                     ),
                 )
@@ -522,6 +523,31 @@ class ChatApp(App):
             self._current_question = question
             self._reinitialize_llm_model()
             self.post_message(self.EndChatTurn(role="assistant"))
+            return
+
+        # if the question starts with 'stream', set the stream tokens
+        if question.startswith("stream on"):
+            self.ag.stream_tokens = True
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="Stream tokens are on")
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
+            return
+        if question.startswith("stream off"):
+            self.ag.stream_tokens = False
+            self.post_message(
+                self.AddToChatMessage(role="assistant", message="Stream tokens are off")
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
+            return
+        if question == ("stream"):
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=f"Stream tokens are {'on' if self.ag.stream_tokens else 'off'}",
+                )
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if question starts with 'dall-e ' pass to Dall-e

@@ -388,12 +388,15 @@ class AutogenManager(object):
             description="Search Google for information, returns results with a snippet and body content",
         )
 
+        # Set the token callback in the agent if the value is True
+        callback = self._message_callback if self._stream_tokens else None
+
         self.agent = AssistantAgent(
             name=persona,
             model_client=self.model_client,
             tools=[google_search_tool],
             system_message=self.prompt,
-            token_callback=self._message_callback,
+            token_callback=callback,
         )
 
         # Load Extra system messages
