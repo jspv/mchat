@@ -20,6 +20,15 @@ _max_context = 128000
 _cost_input = 0.005
 _cost_output = 0.0015
 
+[models.chat.o1-preview]
+api_key = "@format {this.openai_api_key}"
+model = "o1-preview"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_streaming_support = false
+_system_prompt_support = false
+_tool_support = false
+
 [models.chat.azure_openai_gpt_4o]
 api_key = "@format {this.azure_openai_api_key}"
 api_type = "azure"

@@ -165,6 +165,18 @@ class ModelManager:
             ]
         return config_list
 
+    def get_streaming_support(self, model: str) -> bool:
+        """Returns whether the model supports streaming, assume true"""
+        return self.model_configs["chat"][model].get("_streaming_support", True)
+
+    def get_tool_support(self, model: str) -> bool:
+        """Returns whether the model supports tools, assume true"""
+        return self.model_configs["chat"][model].get("_tool_support", True)
+
+    def get_system_prompt_support(self, model: str) -> bool:
+        """Returns whether the model supports system prompts, assume true"""
+        return self.model_configs["chat"][model].get("_system_prompt_support", True)
+
     def open_model(
         self,
         model_id: str,
@@ -177,7 +189,8 @@ class ModelManager:
         record = copy.deepcopy(self.model_configs[model_type][model_id])
         assert record["api_type"] in ["open_ai", "azure"]
 
-        # strip out the non-model attributes and add the passed in values
+        # strip out the non-model attributes and add the passed in values, whatever
+        # remains will be considered kwargs for the model
         model_kwargs = {
             **{k: v for k, v in record.items() if not k.startswith("_")},
             **kwargs,
@@ -404,14 +417,32 @@ class AutogenManager(object):
             description="Search Google for information, returns results with a snippet and body content",
         )
 
-        # Set the token callback in the agent if the value is True
-        callback = self._message_callback if self._stream_tokens else None
+        # don't use tools if the model does't support them
+        if (
+            not self.mm.get_tool_support(model_id)
+            or not self.model_client.capabilities["function_calling"]
+        ):
+            tools = None
+        else:
+            tools = [google_search_tool]
+
+        # Don't stream if not supported or if disabled by _stream_tokens
+        if self.mm.get_streaming_support(model_id) and self._stream_tokens:
+            callback = self._message_callback
+        else:
+            callback = None
+
+        # Don't use system messages if not supported
+        if self.mm.get_system_prompt_support(model_id):
+            system_message = self.prompt
+        else:
+            system_message = None
 
         self.agent = AssistantAgent(
             name=persona,
             model_client=self.model_client,
-            tools=[google_search_tool],
-            system_message=self.prompt,
+            tools=tools,
+            system_message=system_message,
             token_callback=callback,
         )
 
