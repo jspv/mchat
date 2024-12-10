@@ -25,6 +25,7 @@ autogen-core = { path = "../autogen/python/packages/autogen-core", develop=true 
 autogen-ext = { path = "../autogen/python/packages/autogen-ext",  develop=true}
 autogen-agentchat = { path = "../autogen/python/packages/autogen-agentchat",  develop=true}
 pydantic = "^2.10"
+textual-serve = "^1.1.1"
 
 [tool.poetry.scripts]
 mchat = "mchat.mchat:run"
