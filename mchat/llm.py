@@ -1,4 +1,9 @@
-from typing import List, Callable, Optional, Dict, Set, List, Union, cast
+from typing import List, Callable, Optional, Dict, Set, List, Union, cast, Literal
+from dataclasses import dataclass, fields
+
+from pydantic import BaseModel, Field
+from pydantic.networks import HttpUrl
+
 
 # No Dall-e support in langhchain OpenAI, so use the native
 from openai import OpenAI
@@ -74,25 +79,139 @@ summary_prompt = (
 )
 
 
+@dataclass
+class ModelConfig:
+    model_id: str
+    model: str
+    model_type: Literal["chat", "image", "embedding"]
+    api_type: Literal["open_ai", "azure"]
+
+
+@dataclass
+class ModelConfigChatOpenAI(ModelConfig):
+    api_key: str
+    model_type: Literal["chat"]
+    api_type: Literal["open_ai"]
+    base_url: HttpUrl | None = None
+    temperature: float | None = None
+    _streaming_support: bool | None = None
+    _tool_support: bool | None = None
+    _json_support: bool | None = None
+    _system_prompt_support: bool | None = None
+    _max_tokens: int | None = None
+    _max_context: int | None = None
+    _cost_input: float | None = None
+    _cost_output: float | None = None
+    _temperature_support: bool | None = None
+
+
+@dataclass
+class ModelConfigChatAzure(ModelConfig):
+    api_key: str
+    azure_deployment: str
+    api_version: str
+    azure_endpoint: HttpUrl
+    model_type: Literal["chat"]
+    api_type: Literal["azure"]
+    temperature: float | None = None
+    _streaming_support: bool | None = None
+    _tool_support: bool | None = None
+    _json_support: bool | None = None
+    _system_prompt_support: bool | None = None
+    _max_tokens: int | None = None
+    _max_context: int | None = None
+    _cost_input: float | None = None
+    _cost_output: float | None = None
+    _temperature_support: bool | None = None
+
+
+@dataclass
+class ModelConfigImageOpenAI(ModelConfig):
+    api_key: str
+    size: str
+    quality: str
+    num_images: int
+    model_type: Literal["image"]
+    api_type: Literal["open_ai"]
+    _cost_output: float | None
+    _temperature_support: bool | None = None
+
+
+@dataclass
+class ModelConfigImageAzure(ModelConfig):
+    api_key: str
+    azure_deployment: str
+    api_version: str
+    azure_endpoint: HttpUrl
+    size: str
+    quality: str
+    num_images: int
+    model_type: Literal["image"]
+    api_type: Literal["azure"]
+    _cost_ouput: float | None = None
+    _temperature_support: bool | None = None
+
+
+@dataclass
+class ModelConfigEmbeddingOpenAI(ModelConfig):
+    model_type: Literal["embedding"]
+    api_type: Literal["open_ai"]
+    api_key: str
+    _cost_input: float | None = None
+    _cost_output: float | None = None
+
+
+@dataclass
+class ModelConfigEmbeddingAzure(ModelConfig):
+    model_type: Literal["embedding"]
+    api_type: Literal["azure"]
+    api_key: str
+    azure_deployment: str
+    api_version: str
+    azure_endpoint: HttpUrl
+    _cost_input: float | None = None
+    _cost_output: float | None = None
+
+
 class ModelManager:
     def __init__(self):
         # Load all the models from the settings
         self.model_configs = settings["models"].to_dict()
-        self.chat_config_list = (
-            [x for x in self.model_configs["chat"].values()]
-            if self.model_configs.get("chat", None)
-            else []
-        )
-        self.image_config_list = (
-            [x for x in self.model_configs["image"].values()]
-            if self.model_configs.get("image", None)
-            else []
-        )
-        self.embedding_config_list = (
-            [x for x in self.model_configs["embedding"].values()]
-            if self.model_configs.get("embedding", None)
-            else []
-        )
+        self.config: Dict[str, ModelConfig] = {}
+
+        model_types = {
+            "chat": {"open_ai": ModelConfigChatOpenAI, "azure": ModelConfigChatAzure},
+            "image": {
+                "open_ai": ModelConfigImageOpenAI,
+                "azure": ModelConfigImageAzure,
+            },
+            "embedding": {
+                "open_ai": ModelConfigEmbeddingOpenAI,
+                "azure": ModelConfigEmbeddingAzure,
+            },
+        }
+
+        for model_type in self.model_configs.keys():
+            for model_id, model_config in self.model_configs[model_type].items():
+                self.config[model_id] = model_types[model_type][
+                    model_config["api_type"]
+                ](model_id=model_id, model_type=model_type, **model_config)
+
+        # self.chat_config_list = (
+        #     [x for x in self.model_configs["chat"].values()]
+        #     if self.model_configs.get("chat", None)
+        #     else []
+        # )
+        # self.image_config_list = (
+        #     [x for x in self.model_configs["image"].values()]
+        #     if self.model_configs.get("image", None)
+        #     else []
+        # )
+        # self.embedding_config_list = (
+        #     [x for x in self.model_configs["embedding"].values()]
+        #     if self.model_configs.get("embedding", None)
+        #     else []
+        # )
 
         # Set the default models
         self.default_chat_model = settings.defaults.chat_model
@@ -122,34 +241,32 @@ class ModelManager:
         """Returns a list of available embedding models"""
         return [x for x in self.model_configs["embedding"].keys()]
 
-    def make_autogen_config_list(self, config_list) -> list:
-        """Returns a list of available chat models suitable for autogen"""
-        config_list = copy.deepcopy(config_list)
-        for config in config_list:
-            if config.get("azure_endpoint", None):
-                config["base_url"] = config.pop("azure_endpoint")
-            if config.get("azure_deployment", None):
-                config["model"] = config.pop("azure_deployment")
-            if config.get("api_type", None) and config["api_type"] == "open_ai":
-                config.pop("api_type")
+    # def make_autogen_config_list(self, config_list) -> list:
+    #     """Returns a list of available chat models suitable for autogen"""
+    #     config_list = copy.deepcopy(config_list)
+    #     for config in config_list:
+    #         if config.get("azure_endpoint", None):
+    #             config["base_url"] = config.pop("azure_endpoint")
+    #         if config.get("azure_deployment", None):
+    #             config["model"] = config.pop("azure_deployment")
+    #         if config.get("api_type", None) and config["api_type"] == "open_ai":
+    #             config.pop("api_type")
 
-        # remove all keys that start with _, these are internal
-        config_list = [
-            {k: v for k, v in x.items() if not k.startswith("_")} for x in config_list
-        ]
-        return config_list
+    #     # remove all keys that start with _, these are internal
+    #     config_list = [
+    #         {k: v for k, v in x.items() if not k.startswith("_")} for x in config_list
+    #     ]
+    #     return config_list
 
     @property
     def autogen_config_list(self) -> list:
         """Returns a list of available chat models suitable for autogen"""
         return self.make_autogen_config_list(self.chat_config_list)
 
-    @staticmethod
-    def filter_config(config_list, filter_dict):
+    def filter_config(self, filter_dict):
         """Filter the config list by provider and model.
 
         Args:
-            config_list (list): The config list.
             filter_dict (dict, optional): The filter dict with keys corresponding to a
             field in each config, and values corresponding to lists of acceptable values
             for each key.
@@ -157,13 +274,11 @@ class ModelManager:
         Returns:
             list: The filtered config list.
         """
-        if filter_dict:
-            config_list = [
-                config
-                for config in config_list
-                if all(config.get(key) in value for key, value in filter_dict.items())
-            ]
-        return config_list
+        return [
+            key
+            for key, value in self.config.items()
+            if all(getattr(value, k) == v for k, v in filter_dict.items())
+        ]
 
     def get_streaming_support(self, model: str) -> bool:
         """Returns whether the model supports streaming, assume true"""
@@ -180,30 +295,35 @@ class ModelManager:
     def open_model(
         self,
         model_id: str,
-        model_type="chat",
         **kwargs,
     ) -> object:
         """Opens a model and returns the model object"""
 
         # Get the model record from the model_configs
-        record = copy.deepcopy(self.model_configs[model_type][model_id])
-        assert record["api_type"] in ["open_ai", "azure"]
+        record = copy.deepcopy(self.config[model_id])
+        assert record.api_type in ["open_ai", "azure"]
 
         # strip out the non-model attributes and add the passed in values, whatever
         # remains will be considered kwargs for the model
         model_kwargs = {
-            **{k: v for k, v in record.items() if not k.startswith("_")},
+            **{
+                field.name: getattr(record, field.name)
+                for field in fields(record)
+                if not field.name.startswith("_")
+            },
             **kwargs,
         }
+        model_kwargs.pop("api_type")
 
-        if model_type == "chat":
-            model_kwargs.setdefault("temperature", self.default_chat_temperature)
-            model_kwargs.pop("api_type")
+        if record.model_type == "chat":
+            # if temperature is supported and currenlty is None, set to default
+            if not getattr(record, "_temperature_support", True):
+                model_kwargs.pop("temperature")
+            elif getattr(record, "temperature", None) is None:
+                model_kwargs.setdefault("temperature", self.default_chat_temperature)
 
-            if record["api_type"] == "open_ai":
-                model = OpenAIChatCompletionClient(
-                    model=model_id, api_key=model_kwargs["api_key"]
-                )
+            if record.api_type == "open_ai":
+                model = OpenAIChatCompletionClient(**model_kwargs)
             elif record["api_type"] == "azure":
                 model = AzureOpenAIChatCompletionClient(
                     model=model_kwargs["model"],
@@ -214,7 +334,7 @@ class ModelManager:
                 )
             return model
 
-        elif model_type == "image":
+        elif record.model_type == "image":
             model = DallEAPIWrapper(**model_kwargs)
             return model
         else:
@@ -292,12 +412,7 @@ class AutogenManager(object):
         self._cancelation_token = None
 
         # Load LLM inference endpoints from an environment variable or a file
-        self.config_list = self.mm.make_autogen_config_list(
-            self.mm.filter_config(
-                self.mm.chat_config_list, {"api_type": "open_ai", "model": "gpt-4o"}
-            )
-            # self.mm.filter_config(self.mm.chat_config_list, {})
-        )
+        self.config_list = self.mm.filter_config({"model_type": "chat"})
 
         if not self.config_list:
             raise ValueError("No chat models found in the configuration")
@@ -356,7 +471,7 @@ class AutogenManager(object):
         """Clear the memory"""
         # JSP - not sure if going to need this, stubbed out as part of the refactor
         # self.agent.clear_memory()
-        self.agent._model_context: List[LLMMessage] = []
+        self.agent._model_context = []
 
     def update_memory(self, messages: List[str]) -> None:
         """Update the memory witt the contents of the messages"""
@@ -488,6 +603,9 @@ class AutogenManager(object):
         async def team_run_stream(task: str) -> None:
             # Generate a cancelation token
             self._cancelation_token = CancellationToken()
+
+            # Clear the termination condition
+            self.agent_team._termination_condition.reset()
 
             async for response in self.agent_team.run_stream(
                 task=message, cancellation_token=self._cancelation_token

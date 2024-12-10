@@ -1,5 +1,6 @@
 # Models
 # sections need to start with model. (with period) and no other periods in the section name
+# model.type.model_id, model_id is what will show in the interface
 [models.chat.gpt-35-turbo]
 api_key = "@format {this.openai_api_key}"
 model = "gpt-3.5-turbo"
@@ -28,6 +29,7 @@ base_url = "https://api.openai.com/v1"
 _streaming_support = false
 _system_prompt_support = false
 _tool_support = false
+_temperature_support = false
 
 [models.chat.azure_openai_gpt_4o]
 api_key = "@format {this.azure_openai_api_key}"
@@ -68,6 +70,7 @@ model = "dall-e-3"
 api_type = "open_ai"
 size = "1024x1024"
 quality = "standard"
+num_images = 1
 _cost_output = 0.080
 
 [models.embedding.text-embedding-ada-002]
@@ -81,7 +84,8 @@ api_key = "@format {this.azure_openai_api_key}"
 model = "text-embedding-ada-002"
 api_type = "azure"
 api_version = "2023-09-01-preview"
-base_url = "@format {this.azure_endpoint}"
+azure_endpoint = "@format {this.azure_endpoint}"
+azure_deployment = "text-embedding-ada-002"
 _cost_input = 0.0001
 
 [defaults]
