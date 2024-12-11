@@ -94,15 +94,15 @@ class ModelConfigChatOpenAI(ModelConfig):
     api_type: Literal["open_ai"]
     base_url: HttpUrl | None = None
     temperature: float | None = None
-    _streaming_support: bool | None = None
-    _tool_support: bool | None = None
-    _json_support: bool | None = None
-    _system_prompt_support: bool | None = None
+    _streaming_support: bool | None = True
+    _tool_support: bool | None = True
+    _json_support: bool | None = True
+    _system_prompt_support: bool | None = True
+    _temperature_support: bool | None = None
     _max_tokens: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
     _cost_output: float | None = None
-    _temperature_support: bool | None = None
 
 
 @dataclass
@@ -114,15 +114,15 @@ class ModelConfigChatAzure(ModelConfig):
     model_type: Literal["chat"]
     api_type: Literal["azure"]
     temperature: float | None = None
-    _streaming_support: bool | None = None
-    _tool_support: bool | None = None
-    _json_support: bool | None = None
-    _system_prompt_support: bool | None = None
+    _streaming_support: bool | None = True
+    _tool_support: bool | None = True
+    _json_support: bool | None = True
+    _system_prompt_support: bool | None = True
+    _temperature_support: bool | None = True
     _max_tokens: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
     _cost_output: float | None = None
-    _temperature_support: bool | None = None
 
 
 @dataclass
@@ -135,6 +135,9 @@ class ModelConfigImageOpenAI(ModelConfig):
     api_type: Literal["open_ai"]
     _cost_output: float | None
     _temperature_support: bool | None = None
+    _streaming_support: bool | None = False
+    _tool_support: bool | None = False
+    _system_prompt_support: bool | None = False
 
 
 @dataclass
@@ -150,6 +153,9 @@ class ModelConfigImageAzure(ModelConfig):
     api_type: Literal["azure"]
     _cost_ouput: float | None = None
     _temperature_support: bool | None = None
+    _streaming_support: bool | None = False
+    _tool_support: bool | None = False
+    _system_prompt_support: bool | None = False
 
 
 @dataclass
@@ -159,6 +165,10 @@ class ModelConfigEmbeddingOpenAI(ModelConfig):
     api_key: str
     _cost_input: float | None = None
     _cost_output: float | None = None
+    _temperature_support: bool | None = False
+    _streaming_support: bool | None = False
+    _tool_support: bool | None = False
+    _system_prompt_support: bool | None = False
 
 
 @dataclass
@@ -171,14 +181,20 @@ class ModelConfigEmbeddingAzure(ModelConfig):
     azure_endpoint: HttpUrl
     _cost_input: float | None = None
     _cost_output: float | None = None
+    _temperature_support: bool | None = None
+    _streaming_support: bool | None = False
+    _tool_support: bool | None = False
+    _system_prompt_support: bool | None = False
 
 
 class ModelManager:
-    def __init__(self):
+    def __init__(self, logger: Callable | None = None):
         # Load all the models from the settings
         self.model_configs = settings["models"].to_dict()
         self.config: Dict[str, ModelConfig] = {}
+        self._logger_callback = logger
 
+        # The constructors for the various model types
         model_types = {
             "chat": {"open_ai": ModelConfigChatOpenAI, "azure": ModelConfigChatAzure},
             "image": {
@@ -191,6 +207,7 @@ class ModelManager:
             },
         }
 
+        # store the model configurations in the appropriate dataclasses
         for model_type in self.model_configs.keys():
             for model_id, model_config in self.model_configs[model_type].items():
                 self.config[model_id] = model_types[model_type][
@@ -225,6 +242,22 @@ class ModelManager:
         self.default_memory_model_max_tokens = settings.defaults.memory_model_max_tokens
 
         # os.environ["OAI_CONFIG_LIST"] = json.dumps(self.chat_config_list)
+
+    @property
+    def logger(self):
+        """Returns the current logger"""
+        return self._logger_callback
+
+    @logger.setter
+    def logger(self, logger: Callable):
+        """Set the logger"""
+        self._logger_callback = logger
+
+    # if a logger has been provided
+    def log(self, message: str):
+        """Log a message if a logger has been provided"""
+        if self._logger_callback:
+            self._logger_callback(message)
 
     @property
     def available_image_models(self) -> list:
@@ -280,17 +313,21 @@ class ModelManager:
             if all(getattr(value, k) == v for k, v in filter_dict.items())
         ]
 
-    def get_streaming_support(self, model: str) -> bool:
+    def get_streaming_support(self, model_id: str) -> bool:
         """Returns whether the model supports streaming, assume true"""
-        return self.model_configs["chat"][model].get("_streaming_support", True)
+        return self.config[model_id]._streaming_support
 
-    def get_tool_support(self, model: str) -> bool:
+    def get_tool_support(self, model_id: str) -> bool:
         """Returns whether the model supports tools, assume true"""
-        return self.model_configs["chat"][model].get("_tool_support", True)
+        return self.config[model_id]._tool_support
 
-    def get_system_prompt_support(self, model: str) -> bool:
+    def get_system_prompt_support(self, model_id: str) -> bool:
         """Returns whether the model supports system prompts, assume true"""
-        return self.model_configs["chat"][model].get("_system_prompt_support", True)
+        return self.config[model_id]._system_prompt_support
+
+    def get_temperature_support(self, model_id: str) -> bool:
+        """Returns whether the model supports temperature, assume true"""
+        return self.config[model_id]._temperature_support
 
     def open_model(
         self,
@@ -324,7 +361,7 @@ class ModelManager:
 
             if record.api_type == "open_ai":
                 model = OpenAIChatCompletionClient(**model_kwargs)
-            elif record["api_type"] == "azure":
+            elif record.api_type == "azure":
                 model = AzureOpenAIChatCompletionClient(
                     model=model_kwargs["model"],
                     azure_deployment=model_kwargs["azure_deployment"],
@@ -402,11 +439,13 @@ class AutogenManager(object):
         message_callback: Callable | None = None,
         personas: dict = {},
         stream_tokens: bool = True,
+        logger: Callable | None = None,
     ):
         self.mm = ModelManager()
         self._message_callback = message_callback
         self._personas = personas
         self._stream_tokens = stream_tokens
+        self._logger_callback = logger
 
         # Will be used to cancel ongoing tasks
         self._cancelation_token = None
@@ -416,6 +455,22 @@ class AutogenManager(object):
 
         if not self.config_list:
             raise ValueError("No chat models found in the configuration")
+
+    @property
+    def logger(self):
+        """Returns the current logger"""
+        return self._logger_callback
+
+    @logger.setter
+    def logger(self, logger: Callable):
+        """Set the logger"""
+        self._logger_callback = logger
+
+    # if a logger has been provided
+    def log(self, message: str):
+        """Log a message if a logger has been provided"""
+        if self._logger_callback:
+            self._logger_callback(message)
 
     def new_agent(self, agent_name, model_name, prompt, tools=[]) -> None:
         """Create a new agent with the given name, model, tools, and prompt"""
@@ -461,17 +516,19 @@ class AutogenManager(object):
     def stream_tokens(self, value: bool) -> None:
         """Set the stream token"""
         self._stream_tokens = value
-        # Set the token callback in the agent if the value is True
-        if value:
-            self.agent._token_callback = self._message_callback
-        else:
-            self.agent._token_callback = None
+        # if there is an agent, set token callback in the agent if the value is True
+        if hasattr(self, "agent"):
+            if value:
+                self.agent._token_callback = self._message_callback
+            else:
+                self.agent._token_callback = None
 
     def clear_memory(self) -> None:
         """Clear the memory"""
         # JSP - not sure if going to need this, stubbed out as part of the refactor
         # self.agent.clear_memory()
-        self.agent._model_context = []
+        if hasattr(self, "agent"):
+            self.agent._model_context = []
 
     def update_memory(self, messages: List[str]) -> None:
         """Update the memory witt the contents of the messages"""
@@ -543,9 +600,14 @@ class AutogenManager(object):
 
         # Don't stream if not supported or if disabled by _stream_tokens
         if self.mm.get_streaming_support(model_id) and self._stream_tokens:
+            self.stream_tokens = True
             callback = self._message_callback
+            self.log(f"token streaming for {model_id} enabled")
+
         else:
+            self.stream_tokens = False
             callback = None
+            self.log(f"token streaming for {model_id} disabled or not supported")
 
         # Don't use system messages if not supported
         if self.mm.get_system_prompt_support(model_id):
@@ -605,7 +667,7 @@ class AutogenManager(object):
             self._cancelation_token = CancellationToken()
 
             # Clear the termination condition
-            self.agent_team._termination_condition.reset()
+            # self.agent_team._termination_condition.reset()
 
             async for response in self.agent_team.run_stream(
                 task=message, cancellation_token=self._cancelation_token
@@ -618,6 +680,7 @@ class AutogenManager(object):
                         # ingore these, they are tokens which are being streamed
                         continue
                     else:
+                        # not streaming, so send the response
                         await self._message_callback(response.content)
                         continue
                 if isinstance(response, ToolCallMessage):
@@ -629,14 +692,15 @@ class AutogenManager(object):
                     await self._message_callback("done\n\n")
                     continue
                 if isinstance(response, TaskResult):
-                    continue
+                    return TaskResult
                 if response is None:
                     continue
                 await self._message_callback("\n\n<unknown>\n\n", flush=True)
                 await self._message_callback(repr(response), flush=True)
 
         # tokens are returned via the callback
-        await team_run_stream(task=message)
+        result = await team_run_stream(task=message)
+        await self._message_callback(f"\n\nresult={result.stop_reason}\n✅", flush=True)
 
 
 class LLMTools:

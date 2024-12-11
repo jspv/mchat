@@ -237,6 +237,10 @@ class ChatApp(App):
 
         Logger.debug = debug
 
+        # update the logger for the model manager and autogen manager
+        self.mm.logger = self.log.debug
+        self.ag.logger = self.log.debug
+
     @on(ChatTurn.ChatTurnClicked)
     def click_chat_turn(self, event: events) -> None:
         chatturn = event.widget
@@ -465,6 +469,7 @@ class ChatApp(App):
             # check to see if the name is an llm or image model
             if model_name in self.available_llm_models:
                 self.llm_model_name = model_name
+                self.log.debug(f"switching to llm model {model_name}")
                 self._reinitialize_llm_model()
                 self.post_message(
                     self.AddToChatMessage(
@@ -477,6 +482,7 @@ class ChatApp(App):
                 return
             elif model_name in self.available_image_models:
                 self.image_model_name = model_name
+                self.log.debug(f"switching to image model {model_name}")
                 self._reinitialize_image_model()
                 self.post_message(
                     self.AddToChatMessage(
