@@ -214,22 +214,6 @@ class ModelManager:
                     model_config["api_type"]
                 ](model_id=model_id, model_type=model_type, **model_config)
 
-        # self.chat_config_list = (
-        #     [x for x in self.model_configs["chat"].values()]
-        #     if self.model_configs.get("chat", None)
-        #     else []
-        # )
-        # self.image_config_list = (
-        #     [x for x in self.model_configs["image"].values()]
-        #     if self.model_configs.get("image", None)
-        #     else []
-        # )
-        # self.embedding_config_list = (
-        #     [x for x in self.model_configs["embedding"].values()]
-        #     if self.model_configs.get("embedding", None)
-        #     else []
-        # )
-
         # Set the default models
         self.default_chat_model = settings.defaults.chat_model
         self.default_image_model = settings.defaults.image_model
@@ -240,8 +224,6 @@ class ModelManager:
             settings.defaults.memory_model_temperature
         )
         self.default_memory_model_max_tokens = settings.defaults.memory_model_max_tokens
-
-        # os.environ["OAI_CONFIG_LIST"] = json.dumps(self.chat_config_list)
 
     @property
     def logger(self):
@@ -273,23 +255,6 @@ class ModelManager:
     def available_embedding_models(self) -> list:
         """Returns a list of available embedding models"""
         return [x for x in self.model_configs["embedding"].keys()]
-
-    # def make_autogen_config_list(self, config_list) -> list:
-    #     """Returns a list of available chat models suitable for autogen"""
-    #     config_list = copy.deepcopy(config_list)
-    #     for config in config_list:
-    #         if config.get("azure_endpoint", None):
-    #             config["base_url"] = config.pop("azure_endpoint")
-    #         if config.get("azure_deployment", None):
-    #             config["model"] = config.pop("azure_deployment")
-    #         if config.get("api_type", None) and config["api_type"] == "open_ai":
-    #             config.pop("api_type")
-
-    #     # remove all keys that start with _, these are internal
-    #     config_list = [
-    #         {k: v for k, v in x.items() if not k.startswith("_")} for x in config_list
-    #     ]
-    #     return config_list
 
     @property
     def autogen_config_list(self) -> list:
@@ -447,6 +412,9 @@ class AutogenManager(object):
         self._stream_tokens = stream_tokens
         self._logger_callback = logger
 
+        # model being used by the agent, will be set when a new conversation is started
+        self._model_id = None
+
         # Will be used to cancel ongoing tasks
         self._cancelation_token = None
 
@@ -509,19 +477,21 @@ class AutogenManager(object):
 
     @property
     def stream_tokens(self) -> bool:
-        """Returns the current stream token"""
+        """Are we currently streaming tokens if they are supported"""
         return self._stream_tokens
 
     @stream_tokens.setter
     def stream_tokens(self, value: bool) -> None:
-        """Set the stream token"""
+        """enable or disable token streaming"""
         self._stream_tokens = value
         # if there is an agent, set token callback in the agent if the value is True
-        if hasattr(self, "agent"):
+        if hasattr(self, "agent") and self.mm.get_streaming_support(self._model_id):
             if value:
                 self.agent._token_callback = self._message_callback
+                self._currently_streaming = True
             else:
                 self.agent._token_callback = None
+                self._currently_streaming = False
 
     def clear_memory(self) -> None:
         """Clear the memory"""
@@ -581,6 +551,7 @@ class AutogenManager(object):
         """
 
         self.model_client = self.mm.open_model(model_id)
+        self._model_id = model_id
 
         self._prompt = self._personas[persona]["description"]
 
@@ -598,16 +569,15 @@ class AutogenManager(object):
         else:
             tools = [google_search_tool]
 
-        # Don't stream if not supported or if disabled by _stream_tokens
+        # Stream if supported and enabled by  _stream_tokens
         if self.mm.get_streaming_support(model_id) and self._stream_tokens:
-            self.stream_tokens = True
             callback = self._message_callback
             self.log(f"token streaming for {model_id} enabled")
-
+            self._currently_streaming = True
         else:
-            self.stream_tokens = False
             callback = None
             self.log(f"token streaming for {model_id} disabled or not supported")
+            self._currently_streaming = False
 
         # Don't use system messages if not supported
         if self.mm.get_system_prompt_support(model_id):
@@ -673,14 +643,14 @@ class AutogenManager(object):
                 task=message, cancellation_token=self._cancelation_token
             ):
                 if isinstance(response, TextMessage):
+                    # ignore these, it is a repeat of the user message
                     if response.source == "user":
-                        # ignore these, it is a repeat of the user message
                         continue
-                    elif self.stream_tokens:
-                        # ingore these, they are tokens which are being streamed
+                    # if we're streaming TextMessate, we got the tokens already
+                    elif self._currently_streaming:
                         continue
+                    # not streaming, so send the response
                     else:
-                        # not streaming, so send the response
                         await self._message_callback(response.content)
                         continue
                 if isinstance(response, ToolCallMessage):
