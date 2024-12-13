@@ -584,6 +584,11 @@ class ChatApp(App):
         # ask the question and wait for a response, the routine is responsible for
         # posting any tokens to the chatbox via the callback function passed when the
         # object was created
+
+        # change instructions to mark loading
+        instructions = self.query_one("#instructions")
+        instructions.loading = True
+
         try:
             # self.ag.stream_tokens = False
             await self.ag.ask(question)
@@ -593,6 +598,7 @@ class ChatApp(App):
                     role="assistant", message=f"Error running autogen: {e}"
                 )
             )
+        instructions.loading = False
 
         # Done with response; clear the chatbox
         self.scroll_to_end()
