@@ -29,8 +29,8 @@ from mchat.widgets.Dialog import Dialog
 from mchat.widgets.FilePicker import FilePickerDialog
 from mchat.llm import AutogenManager, ModelManager, LLMTools
 
-DEFAULT_PERSONA_FILE = "mchat/default_personas.json"
-EXTRA_PERSONA_FILE = "extra_personas.json"
+DEFAULT_AGENT_FILE = "mchat/default_agents.json"
+EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
 
 
 class StreamTokenCallback(object):
@@ -86,22 +86,29 @@ class ChatApp(App):
         # current active widget for storing a conversation turn
         self.chatbox = None
 
-        # load standard personas
-        if os.path.exists(DEFAULT_PERSONA_FILE):
+        # load standard agents
+        if os.path.exists(DEFAULT_AGENT_FILE):
             import json
 
-            with open(DEFAULT_PERSONA_FILE) as f:
-                self.personas = json.load(f)
+            with open(DEFAULT_AGENT_FILE) as f:
+                self.agents = json.load(f)
         else:
-            raise ValueError("no default_personas.json file found")
+            raise ValueError("no default_agents.json file found")
 
-        # if there is an EXTRA_PERSONA_FILE, load the personas from there
-        if os.path.exists(EXTRA_PERSONA_FILE):
-            import json
+        # if there is an EXTRA_AGENTS_FILE, load the agents from there
+        if os.path.exists(EXTRA_AGENTS_FILE):
+            extension = os.path.splitext(EXTRA_AGENTS_FILE)[1]
+            if extension == ".json":
+                import json
 
-            with open(EXTRA_PERSONA_FILE, encoding="UTF-8") as f:
-                extra_personas = json.load(f)
-            self.personas.update(extra_personas)
+                with open(EXTRA_AGENTS_FILE, encoding="UTF-8") as f:
+                    extra_agents = json.load(f)
+            elif extension == ".yaml":
+                import yaml
+
+                with open(EXTRA_AGENTS_FILE, encoding="UTF-8") as f:
+                    extra_agents = yaml.safe_load(f)
+            self.agents.update(extra_agents)
 
         # Get an object to manage the AI models
         self.mm = ModelManager()
@@ -109,7 +116,7 @@ class ChatApp(App):
         # Get an object to manage autogen
         self.ag = AutogenManager(
             message_callback=StreamTokenCallback(self).on_llm_new_token,
-            personas=self.personas,
+            agents=self.agents,
         )
 
         # load the llm models from settings - name: {key: value,...}
@@ -129,16 +136,14 @@ class ChatApp(App):
             )
 
         # Initialize the conversation
-        self.default_persona = getattr(settings, "default_persona", "default")
-        self.set_persona(
-            self.default_persona, self.llm_model_name, self.llm_temperature
-        )
+        self.default_agent = getattr(settings, "default_agent", "default")
+        self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
 
     def _reinitialize_llm_model(self, messages: List[str] = []):
         """re-initialize the language model."""
 
         self.conversation = self.ag.new_conversation(
-            self.current_persona,
+            self.current_agent,
             model_id=self.llm_model_name,
             temperature=self.llm_temperature,
         )
@@ -200,7 +205,7 @@ class ChatApp(App):
         debug_pane.add_entry("model", "LLM Model", lambda: self.llm_model_name)
         debug_pane.add_entry("imagemodel", "Image Model", lambda: self.image_model_name)
         debug_pane.add_entry("temp", "Temperature", lambda: self.llm_temperature)
-        debug_pane.add_entry("persona", "Persona", lambda: self.current_persona)
+        debug_pane.add_entry("agent", "Agent", lambda: self.current_agent)
         debug_pane.add_entry(
             "question", "Question", lambda: self._current_question, collapsed=True
         )
@@ -323,18 +328,18 @@ class ChatApp(App):
         """When __show_debug changes, toggle the class the debug widget."""
         self.app.set_class(show_debug, "-show-debug")
 
-    def set_persona(self, persona: str, model_name: str = "", temperature: float = 0.0):
-        """Set the persona and reinitialize the conversation chain."""
+    def set_agent(self, agent: str, model_name: str = "", temperature: float = 0.0):
+        """Set the agent and reinitialize the conversation chain."""
 
-        self.current_persona = persona
-        if persona not in self.personas:
-            raise ValueError(f"Persona '{persona}' not found")
+        self.current_agent = agent
+        if agent not in self.agents:
+            raise ValueError(f"agent '{agent}' not found")
 
         if model_name == "":
             model_name = self.llm_model_name
 
         self.conversation = self.ag.new_conversation(
-            persona=persona, model_id=model_name, temperature=temperature
+            agent=agent, model_id=model_name, temperature=temperature
         )
 
     # Add addtional retry logic to the ask_question function
@@ -365,8 +370,8 @@ class ChatApp(App):
                     message=(
                         "Available Commands:\n"
                         " - new: start a new session\n"
-                        " - personas: show available personas\n"
-                        " - persona <persona>: set the persona\n"
+                        " - agents: show available agents\n"
+                        " - agent <agent>: set the agent\n"
                         " - models: show available models\n"
                         " - model <model>: set the model\n"
                         " - temperature <temperature>: set the temperature\n"
@@ -399,42 +404,42 @@ class ChatApp(App):
             history = self.query_one(HistoryContainer)
             self.record = await history.new_session()
             self.ag.clear_memory()
-            self.set_persona(self.default_persona)
+            self.set_agent(self.default_agent)
             self.llm_model_name = self.mm.default_chat_model
             self.llm_temperature = self.mm.default_chat_temperature
             self._reinitialize_llm_model()
             return
 
-        # if the question is either 'persona', or 'personas' show the available personas
-        if question == "personas" or question == "persona":
+        # if the question is either 'agent', or 'agents' show the available agents
+        if question == "agents" or question == "agent":
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="Available Personas:\n")
+                self.AddToChatMessage(role="assistant", message="Available agents:\n")
             )
-            for persona in self.personas:
+            for agent in self.agents:
                 self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f" - {persona}\n")
+                    self.AddToChatMessage(role="assistant", message=f" - {agent}\n")
                 )
             self.post_message(self.EndChatTurn(role="meta"))
             return
 
-        if question.startswith("persona"):
-            # load the new persona
-            persona = question.split(maxsplit=1)[1].strip()
-            if persona not in self.personas:
+        if question.startswith("agent"):
+            # load the new agent
+            agent = question.split(maxsplit=1)[1].strip()
+            if agent not in self.agents:
                 self.post_message(
                     self.AddToChatMessage(
-                        role="assistant", message=f"Persona '{persona}' not found"
+                        role="assistant", message=f"agent '{agent}' not found"
                     )
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
             self.post_message(
                 self.AddToChatMessage(
-                    role="assistant", message=f"Setting persona to '{persona}'"
+                    role="assistant", message=f"Setting agent to '{agent}'"
                 )
             )
             self._current_question = ""
-            self.set_persona(persona=persona)
+            self.set_agent(agent=agent)
             self.post_message(self.EndChatTurn(role="assistant"))
             return
 
@@ -686,7 +691,7 @@ class ChatApp(App):
         # If we hae a response, add the turn to the conversation record
         if event.role == "assistant":
             self.record.add_turn(
-                persona=self.current_persona,
+                agent=self.current_agent,
                 prompt=self._current_question,
                 response=self.chatbox.message,
                 # summary=self.memory.moving_summary_buffer,
@@ -727,7 +732,7 @@ class ChatApp(App):
             self.ag.clear_memory()
         else:
             # load the parameters from the last turn and reinitialize
-            self.current_persona = self.record.turns[-1].persona
+            self.current_agent = self.record.turns[-1].agent
             self.llm_model_name = self.record.turns[-1].model
             self.llm_temperature = self.record.turns[-1].temperature
             self._current_question = self.record.turns[-1].prompt

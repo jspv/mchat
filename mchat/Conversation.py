@@ -12,7 +12,7 @@ import uuid
 class Turn(object):
     """Object to store a single back/forth turn in a conversation"""
 
-    persona: str
+    agent: str
     prompt: str
     response: str
     model: str

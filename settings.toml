@@ -1,3 +1,6 @@
+# Agent configuration
+extra_agents_file = "agents.yaml"
+
 # Models
 # sections need to start with model. (with period) and no other periods in the section name
 # model.type.model_id, model_id is what will show in the interface

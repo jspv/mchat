@@ -54,7 +54,7 @@ intent_prompt = (
     "A human is having a conversation with an AI, you are watching that conversation"
     " and your job is to determine what the human is intending to do in their last"
     " message to the AI.  Reply with one of the following options:  1) if the human is"
-    " asking to change their persona, reply with the word 'persona', 2) if the human is"
+    " asking to change their agent, reply with the word 'agent', 2) if the human is"
     " asking a new question unrelated to the current conversation, reply with the word"
     " 'ask', 3) if the human is continuing an existing conversation, reply with the"
     " word 'continue' 4) if the human is responding to a question that the AI asked,"
@@ -402,13 +402,13 @@ class AutogenManager(object):
     def __init__(
         self,
         message_callback: Callable | None = None,
-        personas: dict = {},
+        agents: dict = {},
         stream_tokens: bool = True,
         logger: Callable | None = None,
     ):
         self.mm = ModelManager()
         self._message_callback = message_callback
-        self._personas = personas
+        self._agents = agents
         self._stream_tokens = stream_tokens
         self._logger_callback = logger
 
@@ -535,15 +535,13 @@ class AutogenManager(object):
             # Add the appropriate object to the memory
             self.agent._model_context.append(msg_type(**msg_args))
 
-    def new_conversation(
-        self, persona: dict, model_id, temperature: float = 0.0
-    ) -> None:
-        """Intialize a new conversation with the given persona and model
+    def new_conversation(self, agent: dict, model_id, temperature: float = 0.0) -> None:
+        """Intialize a new conversation with the given agent and model
 
         Parameters
         ----------
-        persona : dict
-            persona object
+        agent : dict
+            agent object
         model_id: str
             model  to use""
         temperature : float, optional
@@ -553,7 +551,7 @@ class AutogenManager(object):
         self.model_client = self.mm.open_model(model_id)
         self._model_id = model_id
 
-        self._prompt = self._personas[persona]["description"]
+        self._prompt = self._agents[agent]["description"]
 
         google_search_tool = FunctionTool(
             google_search,
@@ -586,7 +584,7 @@ class AutogenManager(object):
             system_message = None
 
         self.agent = AssistantAgent(
-            name=persona,
+            name=agent,
             model_client=self.model_client,
             tools=tools,
             system_message=system_message,
@@ -594,10 +592,12 @@ class AutogenManager(object):
         )
 
         # Load Extra system messages
-        for extra in self._personas[persona]["extra_context"]:
+        if "extra_context" not in self._agents[agent]:
+            self._agents[agent]["extra_context"] = []
+        for extra in self._agents[agent]["extra_context"]:
             if extra[0] == "ai":
                 self.agent._model_context.append(
-                    AssistantMessage(content=extra[1], source=persona)
+                    AssistantMessage(content=extra[1], source=agent)
                 )
             elif extra[0] == "human":
                 self.agent._model_context.append(
@@ -669,8 +669,7 @@ class AutogenManager(object):
                 await self._message_callback(repr(response), flush=True)
 
         # tokens are returned via the callback
-        result = await team_run_stream(task=message)
-        await self._message_callback(f"\n\nresult={result.stop_reason}\n✅", flush=True)
+        await team_run_stream(task=message)
 
 
 class LLMTools:
