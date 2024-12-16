@@ -7,10 +7,6 @@ def google_search(query: str, num_results: int = 5, max_chars: int = 500) -> lis
     import requests
     from bs4 import BeautifulSoup
 
-    # from dotenv import load_dotenv
-
-    # load_dotenv()
-
     api_key = settings.get("google_api_key", None)
     search_engine_id = settings.get("google_search_engine_id", None)
 
@@ -18,6 +14,10 @@ def google_search(query: str, num_results: int = 5, max_chars: int = 500) -> lis
         raise ValueError(
             "API key or Search Engine ID not found in environment variables"
         )
+
+    # Log the search query to google_search.log
+    with open("google_search.log", "a") as f:
+        f.write(f"{query}\n")
 
     url = "https://www.googleapis.com/customsearch/v1"
     params = {"key": api_key, "cx": search_engine_id, "q": query, "num": num_results}

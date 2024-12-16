@@ -2,6 +2,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 from textual.message import Message
 from textual.containers import VerticalScroll, Vertical, Horizontal
+from textual.app import ComposeResult
 from textual import events
 from textual.events import Click
 from textual import on
@@ -41,7 +42,7 @@ class HistorySessionBox(Widget, can_focus=True):
         self.label = label
         self.record = record
 
-    def compose(self) -> None:
+    def compose(self) -> ComposeResult:
         with Vertical():
             with Horizontal():
                 if len(self.record.turns) > 0:
@@ -172,7 +173,7 @@ class HistoryContainer(VerticalScroll):
         super().__init__(*args, **kwargs)
         self.new_label = new_label
 
-    def compose(self) -> None:
+    def compose(self) -> ComposeResult:
         # Open or create the database
         self.connection = self._initialize_db()
 
@@ -283,7 +284,7 @@ class HistoryContainer(VerticalScroll):
         # group the turns of the conversation and summarize
         conversation = []
         for turn in turns:
-            conversation.append({"user": turn.prompt, "ai": turn.response})
+            conversation.append({"user": turn.prompt, "ai": turn.responses})
         record.summary = await LLMTools.aget_summary_label(conversation)
 
         # update the active session

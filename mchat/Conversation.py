@@ -14,12 +14,13 @@ class Turn(object):
 
     agent: str
     prompt: str
-    response: str
     model: str
-    summary: str
-    temperature: float
+    summary: str = ""
+    temperature: float = 0
+    responses: list = field(default_factory=list)
     memory_messages: list = field(default_factory=list)
     timestamp: datetime = field(default_factory=lambda: datetime.now())
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_json(self):
         """Convert Turn object to JSON string"""
@@ -47,8 +48,16 @@ class ConversationRecord(object):
     summary: str = ""
     turns: list = field(default_factory=list[Turn])
 
-    def add_turn(self, **kwargs):
+    def new_turn(self, **kwargs) -> None:
+        """Create a new turn in the conversation"""
         self.turns.append(Turn(**kwargs))
+
+    def add_to_turn(
+        self, agent_name: str, response: str, memory_messages: list = None
+    ) -> None:
+        self.turns[-1].responses.append({"agent": agent_name, "response": response})
+        if memory_messages:
+            self.turns[-1].memory_messages = memory_messages
 
     def copy(self):
         """create a deep copy of the conversation record with a new id and timestamp"""

@@ -17,6 +17,10 @@ from autogen_agentchat.messages import (
     ToolCallMessage,
     ToolCallResultMessage,
 )
+from autogen_agentchat.conditions import (
+    MaxMessageTermination,
+    TextMentionTermination,
+)
 from autogen_agentchat.base import Response, TaskResult
 from autogen_core import CancellationToken
 from autogen_ext.models import (
@@ -424,6 +428,13 @@ class AutogenManager(object):
         if not self.config_list:
             raise ValueError("No chat models found in the configuration")
 
+        # Inialize available tools
+        self.tools = {}
+        self.tools["google_search"] = FunctionTool(
+            google_search,
+            description="Search Google for information, returns results with a snippet and body content",
+        )
+
     @property
     def logger(self):
         """Returns the current logger"""
@@ -548,70 +559,144 @@ class AutogenManager(object):
             model temperature setting, by default 0.0
         """
 
-        self.model_client = self.mm.open_model(model_id)
-        self._model_id = model_id
+        """ 
+        Thoughts:  model_id and temperature will be for the agent that is interacting
+        with the user.  For single-model agents, this will be the same as going straight
+        to the model.
 
-        self._prompt = self._agents[agent]["description"]
+        For multi-agent teams, it will only affect the agent that is currently 
+        interacting with the user.  The other agents in the team will have their own 
+        model_id and temperature settings from the agent dictionary, or will use the 
+        default.
+        """
 
-        google_search_tool = FunctionTool(
-            google_search,
-            description="Search Google for information, returns results with a snippet and body content",
-        )
+        agent_data = self._agents[agent]
 
-        # don't use tools if the model does't support them
-        if (
-            not self.mm.get_tool_support(model_id)
-            or not self.model_client.capabilities["function_calling"]
-        ):
-            tools = None
+        if "type" in agent_data and agent_data["type"] == "team":
+            if agent_data["team_type"] == "round_robin":
+                self.agent_team = self._create_team_round_robin(agent_data)
+                self._prompt = agent_data["description"]
+                self.agent = self.agent_team._participants[0]
+                self._currently_streaming = False
         else:
-            tools = [google_search_tool]
+            self.model_client = self.mm.open_model(model_id)
+            self._model_id = model_id
 
-        # Stream if supported and enabled by  _stream_tokens
-        if self.mm.get_streaming_support(model_id) and self._stream_tokens:
-            callback = self._message_callback
-            self.log(f"token streaming for {model_id} enabled")
-            self._currently_streaming = True
-        else:
-            callback = None
-            self.log(f"token streaming for {model_id} disabled or not supported")
-            self._currently_streaming = False
+            self._prompt = self._agents[agent]["description"]
 
-        # Don't use system messages if not supported
-        if self.mm.get_system_prompt_support(model_id):
-            system_message = self.prompt
-        else:
-            system_message = None
-
-        self.agent = AssistantAgent(
-            name=agent,
-            model_client=self.model_client,
-            tools=tools,
-            system_message=system_message,
-            token_callback=callback,
-        )
-
-        # Load Extra system messages
-        if "extra_context" not in self._agents[agent]:
-            self._agents[agent]["extra_context"] = []
-        for extra in self._agents[agent]["extra_context"]:
-            if extra[0] == "ai":
-                self.agent._model_context.append(
-                    AssistantMessage(content=extra[1], source=agent)
-                )
-            elif extra[0] == "human":
-                self.agent._model_context.append(
-                    UserMessage(content=extra[1], source="user")
-                )
-            elif extra[0] == "system":
-                raise ValueError(f"system message not implemented: {extra[0]}")
+            # don't use tools if the model does't support them
+            if (
+                not self.mm.get_tool_support(model_id)
+                or not self.model_client.capabilities["function_calling"]
+            ):
+                tools = None
             else:
-                raise ValueError(f"Unknown extra context type {extra[0]}")
+                tools = [self.tools["google_search"]]
 
-        termination = MaxMessageTermination(max_messages=2)
-        self.agent_team = RoundRobinGroupChat(
-            [self.agent], termination_condition=termination
-        )
+            # wrap the callback in a partial to pass the agent name
+            callback = partial(self._message_callback, agent=agent)
+
+            # Stream if supported and enabled by  _stream_tokens
+            if self.mm.get_streaming_support(model_id) and self._stream_tokens:
+                callback = callback
+                self.log(f"token streaming for {model_id} enabled")
+                self._currently_streaming = True
+            else:
+                callback = None
+                self.log(f"token streaming for {model_id} disabled or not supported")
+                self._currently_streaming = False
+
+            # Don't use system messages if not supported
+            if self.mm.get_system_prompt_support(model_id):
+                system_message = self.prompt
+            else:
+                system_message = None
+
+            self.agent = AssistantAgent(
+                name=agent,
+                model_client=self.model_client,
+                tools=tools,
+                system_message=system_message,
+                token_callback=callback,
+            )
+
+            # Load Extra system messages
+            if "extra_context" not in self._agents[agent]:
+                self._agents[agent]["extra_context"] = []
+            for extra in self._agents[agent]["extra_context"]:
+                if extra[0] == "ai":
+                    self.agent._model_context.append(
+                        AssistantMessage(content=extra[1], source=agent)
+                    )
+                elif extra[0] == "human":
+                    self.agent._model_context.append(
+                        UserMessage(content=extra[1], source="user")
+                    )
+                elif extra[0] == "system":
+                    raise ValueError(f"system message not implemented: {extra[0]}")
+                else:
+                    raise ValueError(f"Unknown extra context type {extra[0]}")
+
+            termination = MaxMessageTermination(max_messages=2)
+            self.agent_team = RoundRobinGroupChat(
+                [self.agent], termination_condition=termination
+            )
+
+    def _create_team_round_robin(self, agent_data: dict) -> RoundRobinGroupChat:
+        """Create a team of agents that will operate in a round-robin fashion
+
+        Parameters
+        ----------
+        agent_data : dict
+            description of the agent team
+
+        Returns
+        -------
+        RoundRobinGroupChat
+            autogen RoundRobinGroupChat object
+        """
+
+        # agent_data needs to be a team
+        if "type" not in agent_data or agent_data["type"] != "team":
+            raise ValueError("agent_data for round_robin team must be a team")
+
+        agents = []
+        for agent in agent_data["agents"]:
+            subagent_data = self._agents[agent]
+            if "model" in subagent_data:
+                model_client = self.mm.open_model(subagent_data["model"])
+            else:
+                model_client = self.mm.open_model(self.mm.default_chat_model)
+
+            # don't use tools if the model does't support them
+            if (
+                not self.mm.get_tool_support(subagent_data["model"])
+                or not model_client.capabilities["function_calling"]
+                or "tools" not in subagent_data
+            ):
+                tools = None
+            else:
+                # load the tools
+                tools = []
+                for tool in subagent_data["tools"]:
+                    tools.append(self.tools[tool])
+
+            agents.append(
+                AssistantAgent(
+                    name=agent,
+                    model_client=model_client,
+                    tools=tools,
+                    system_message=subagent_data["description"],
+                )
+            )
+
+        max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
+
+        text_termination = TextMentionTermination(agent_data["termination_message"])
+        max_message_termination = MaxMessageTermination(max_rounds)
+        termination = text_termination | max_message_termination
+        team = RoundRobinGroupChat(agents, termination_condition=termination)
+        return team
 
     async def ask(self, message: str) -> None:
         async def assistant_run_stream() -> None:
@@ -636,9 +721,6 @@ class AutogenManager(object):
             # Generate a cancelation token
             self._cancelation_token = CancellationToken()
 
-            # Clear the termination condition
-            # self.agent_team._termination_condition.reset()
-
             async for response in self.agent_team.run_stream(
                 task=message, cancellation_token=self._cancelation_token
             ):
@@ -646,30 +728,40 @@ class AutogenManager(object):
                     # ignore these, it is a repeat of the user message
                     if response.source == "user":
                         continue
-                    # if we're streaming TextMessate, we got the tokens already
+                    # if we're streaming no need to show TextMessage, we got the
+                    # tokens already
                     elif self._currently_streaming:
                         continue
                     # not streaming, so send the response
                     else:
-                        await self._message_callback(response.content)
+                        await self._message_callback(
+                            response.content, agent=response.source, complete=True
+                        )
                         continue
                 if isinstance(response, ToolCallMessage):
-                    await self._message_callback(
-                        f"calling {response.content[0].name}..."
-                    )
+                    tool_message = "calling tool\n"
+                    for tool in response.content:
+                        tool_message += (
+                            f"{tool.name} with arguments:\n{tool.arguments}\n"
+                        )
+                    tool_message += "..."
+                    await self._message_callback(tool_message, agent=response.source)
                     continue
                 if isinstance(response, ToolCallResultMessage):
-                    await self._message_callback("done\n\n")
+                    await self._message_callback(
+                        "done", agent=response.source, complete=True
+                    )
                     continue
                 if isinstance(response, TaskResult):
-                    return TaskResult
+                    return response
                 if response is None:
                     continue
                 await self._message_callback("\n\n<unknown>\n\n", flush=True)
                 await self._message_callback(repr(response), flush=True)
 
         # tokens are returned via the callback
-        await team_run_stream(task=message)
+        result = await team_run_stream(task=message)
+        self.logger(f"result: {result.stop_reason}")
 
 
 class LLMTools:

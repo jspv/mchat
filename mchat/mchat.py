@@ -42,9 +42,21 @@ class StreamTokenCallback(object):
     # this method is automatically called by the Langchain callback system when a new
     # token is available
     async def on_llm_new_token(self, token: str, **kwargs) -> None:
+        """Post the new token to the chatbox."""
+        # if an agent is set, note it in the message
+        agent_name = kwargs.get("agent", None)
+
         self.app.post_message(
-            self.app.AddToChatMessage(role="assistant", message=token)
+            self.app.AddToChatMessage(
+                role="assistant", message=token, agent_name=agent_name
+            )
         )
+
+        # if this is marked as a complete message, end the turn
+        if "complete" in kwargs and kwargs["complete"]:
+            self.app.post_message(
+                self.app.EndChatTurn(role="assistant", agent_name=agent_name)
+            )
         # await asyncio.sleep(0.05)
 
 
@@ -128,7 +140,7 @@ class ChatApp(App):
         self.llm_temperature = self.mm.default_chat_temperature
 
         # Initialize the image model
-        self.default_image_model = settings.get("default_image_model", None)
+        self.default_image_model = settings.get("defaults.image_model", None)
         if self.mm.default_image_model is not None:
             self.image_model_name = self.mm.default_image_model
             self.image_model = self.mm.open_model(
@@ -136,7 +148,7 @@ class ChatApp(App):
             )
 
         # Initialize the conversation
-        self.default_agent = getattr(settings, "default_agent", "default")
+        self.default_agent = getattr(settings, "defaults.agent", "default")
         self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
 
     def _reinitialize_llm_model(self, messages: List[str] = []):
@@ -266,7 +278,6 @@ class ChatApp(App):
 
         # ask_question is a work function, so it will be run in a separate thread
         self.ask_question(event.value)
-        self.post_message(self.EndChatTurn(role="user"))
 
     def on_key(self, event: events.Key) -> None:
         """Write Key events to log."""
@@ -364,6 +375,7 @@ class ChatApp(App):
 
         # if the question is 'help', show the help message
         if question.lower() == "help":
+            self.post_message(self.EndChatTurn(role="meta"))
             self.post_message(
                 self.AddToChatMessage(
                     role="assistant",
@@ -386,6 +398,7 @@ class ChatApp(App):
 
         # if the question is 'new' or 'new session" start a new session
         if question.lower() == "new" or question == "new session":
+            self.post_message(self.EndChatTurn(role="meta"))
             # if the session we're in is empty, don't start a new session
             if len(self.record.turns) == 0:
                 self.post_message(
@@ -412,62 +425,93 @@ class ChatApp(App):
 
         # if the question is either 'agent', or 'agents' show the available agents
         if question == "agents" or question == "agent":
+            self.post_message(self.EndChatTurn(role="meta"))
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="Available agents:\n")
-            )
-            for agent in self.agents:
-                self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f" - {agent}\n")
+                self.AddToChatMessage(
+                    role="assistant", message="Available agents\n", agent_name="meta"
                 )
+            )
+            for agent in [
+                agent_name
+                for agent_name, val in self.agents.items()
+                if val.get("chooseable", True)
+            ]:
+                if agent == self.current_agent:
+                    self.post_message(
+                        self.AddToChatMessage(
+                            role="assistant",
+                            message=f" - *{agent}* (current)\n",
+                            agent_name="meta",
+                        ),
+                    )
+                else:
+                    self.post_message(
+                        self.AddToChatMessage(
+                            role="assistant", message=f" - {agent}\n", agent_name="meta"
+                        ),
+                    )
             self.post_message(self.EndChatTurn(role="meta"))
             return
 
         if question.startswith("agent"):
+            self.post_message(self.EndChatTurn(role="meta"))
             # load the new agent
             agent = question.split(maxsplit=1)[1].strip()
             if agent not in self.agents:
                 self.post_message(
                     self.AddToChatMessage(
-                        role="assistant", message=f"agent '{agent}' not found"
+                        role="assistant",
+                        message=f"agent '{agent}' not found",
+                        agent_name="meta",
                     )
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
             self.post_message(
                 self.AddToChatMessage(
-                    role="assistant", message=f"Setting agent to '{agent}'"
+                    role="assistant",
+                    message=f"Setting agent to '{agent}'",
+                    agent_name="meta",
                 )
             )
             self._current_question = ""
             self.set_agent(agent=agent)
-            self.post_message(self.EndChatTurn(role="assistant"))
+            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question is 'models', or 'model', show available models
         if question == "models" or question == "model":
+            self.post_message(self.EndChatTurn(role="meta"))
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="Available Models:\n")
+                self.AddToChatMessage(
+                    role="assistant", message="Available Models:\n", agent_name="meta"
+                )
             )
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="- LLM Models:\n")
+                self.AddToChatMessage(
+                    role="assistant", message="- LLM Models:\n", agent_name="meta"
+                )
             )
             for model in self.available_llm_models:
                 self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n")
+                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n"),
+                    agent_name="meta",
                 )
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="- Image Models:\n")
             )
             for model in self.available_image_models:
                 self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n")
-                )
+                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n"),
+                    agent_name="meta",
+                ),
             self._current_question = ""
             self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question starts with 'model', set the model
         if question.startswith("model"):
+            self.post_message(self.EndChatTurn(role="meta"))
             # get the model
             model_name = question.split(maxsplit=1)[1].strip()
 
@@ -480,10 +524,11 @@ class ChatApp(App):
                     self.AddToChatMessage(
                         role="assistant",
                         message=f"LLM Model set to {self.llm_model_name}",
+                        agent_name="meta",
                     )
                 )
                 self._current_question = ""
-                self.post_message(self.EndChatTurn(role="assistant"))
+                self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
                 return
             elif model_name in self.available_image_models:
                 self.image_model_name = model_name
@@ -493,16 +538,18 @@ class ChatApp(App):
                     self.AddToChatMessage(
                         role="assistant",
                         message=f"Image model set to {self.image_model_name}",
+                        agent_name="meta",
                     )
                 )
                 self._current_question = ""
-                self.post_message(self.EndChatTurn(role="assistant"))
+                self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
                 return
             else:
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",
                         message=f"Model '{model_name}' not found",
+                        agent_name="meta",
                     )
                 )
                 self._current_question = ""
@@ -511,8 +558,11 @@ class ChatApp(App):
 
         # if the question starts with 'summary', summarize the conversation
         if question.startswith("summary"):
+            self.post_message(self.EndChatTurn(role="meta"))
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="Summarizing...")
+                self.AddToChatMessage(
+                    role="assistant", message="Summarizing...", agent_name="meta"
+                )
             )
             summary = await LLMTools.get_conversation_summary(self.record)
             self._current_question = ""
@@ -522,6 +572,7 @@ class ChatApp(App):
 
         # if the question starts with 'temperature', set the temperature
         if question.startswith("temperature"):
+            self.post_message(self.EndChatTurn(role="meta"))
             # get the temperature
             self.llm_temperature = float(question.split(maxsplit=1)[1].strip())
             # post the summary
@@ -529,15 +580,18 @@ class ChatApp(App):
                 self.AddToChatMessage(
                     role="assistant",
                     message=f"Temperature set to {self.llm_temperature}",
+                    agent_name="meta",
                 )
             )
             self._current_question = question
             self._reinitialize_llm_model()
-            self.post_message(self.EndChatTurn(role="assistant"))
+            self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
             return
 
         # if the question starts with 'stream', set the stream tokens
         if question.startswith("stream on"):
+            self.post_message(self.EndChatTurn(role="meta"))
+
             self.ag.stream_tokens = True
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="Stream tokens are on")
@@ -563,12 +617,16 @@ class ChatApp(App):
 
         # if question starts with 'dall-e ' pass to Dall-e
         if question.startswith("dall-e "):
+            self.post_message(self.EndChatTurn(role="user"))
+
+            self._current_question = question
             question = question[7:]
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="Generating...")
+                self.AddToChatMessage(
+                    role="assistant", message="Generating...", agent_name="dall-e"
+                )
             )
             self.post_message(self.EndChatTurn(role="meta"))
-            self._current_question = question
             try:
                 out = await self.image_model.arun(question)
             except Exception as e:
@@ -579,11 +637,16 @@ class ChatApp(App):
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
-            self.post_message(self.AddToChatMessage(role="assistant", message=out))
-            self.post_message(self.EndChatTurn(role="assistant"))
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant", message=out, agent_name="dall-e"
+                )
+            )
+            self.post_message(self.EndChatTurn(role="assistant", agent_name="dall-e"))
             return
 
         # Just a normal question at this point
+        self.post_message(self.EndChatTurn(role="user"))
         self._current_question = question
 
         # ask the question and wait for a response, the routine is responsible for
@@ -600,7 +663,9 @@ class ChatApp(App):
         except Exception as e:
             self.post_message(
                 self.AddToChatMessage(
-                    role="assistant", message=f"Error running autogen: {e}"
+                    role="assistant",
+                    message=f"Error running autogen: {e}",
+                    agent_name="meta",
                 )
             )
         instructions.loading = False
@@ -636,16 +701,34 @@ class ChatApp(App):
     #    the message is received
 
     class AddToChatMessage(Message):
-        def __init__(self, role: str, message: str) -> None:
-            assert role in ["user", "assistant"]
+        def __init__(
+            self, role: str, message: str, agent_name: str | None = None
+        ) -> None:
+            assert role in ["user", "assistant", "assistant_historical"]
             self.role = role
             self.message = message
+            self.agent_name = agent_name
             super().__init__()
 
     @on(AddToChatMessage)
     async def add_to_chat_message(self, chat_token: AddToChatMessage) -> None:
         chunk = chat_token.message
         role = chat_token.role
+        agent_name = chat_token.agent_name
+
+        # if the agent_name is different from the current agent, append it to the agent
+        # name as a sub-agent.  Skip this if it's a historical reload
+        if (
+            agent_name is not None
+            and agent_name not in ["user", "meta"]
+            and agent_name != self.current_agent
+            and role == "assistant"
+        ):
+            agent_name = f"{self.current_agent}:{agent_name}"
+
+        # if the role is 'assistant_historical', change it to 'assistant'
+        if role == "assistant_historical":
+            role = "assistant"
 
         # Todo - find out why this is happening
         if chunk is None:
@@ -659,7 +742,7 @@ class ChatApp(App):
         # Create a ChatTurn widget if we don't have one and mount it in the container
         # make sure to scroll to the bottom
         if self.chatbox is None:
-            self.chatbox = ChatTurn(role=role)
+            self.chatbox = ChatTurn(role=role, title=agent_name)
             await self.chat_container.mount(self.chatbox)
             # Attach the DOM inspector to the tooltip
             self.chat_container.scroll_end(animate=False)
@@ -673,9 +756,10 @@ class ChatApp(App):
             self.chat_container.scroll_end(animate=False)
 
     class EndChatTurn(Message):
-        def __init__(self, role: str) -> None:
+        def __init__(self, role: str, agent_name: str | None = None) -> None:
             assert role in ["user", "assistant", "meta"]
             self.role = role
+            self.agent_name = agent_name
             super().__init__()
 
     @on(EndChatTurn)
@@ -688,17 +772,26 @@ class ChatApp(App):
             self.log("Received EndChatTurn message with no active chatbox")
             return
 
-        # If we hae a response, add the turn to the conversation record
-        if event.role == "assistant":
-            self.record.add_turn(
-                agent=self.current_agent,
+        if event.agent_name is not None and event.agent_name != self.current_agent:
+            agent_name = f"{self.current_agent}:{event.agent_name}"
+        else:
+            agent_name = self.current_agent
+
+        # if the role is 'user', setup a new turn
+        if event.role == "user":
+            self.record.new_turn(
+                agent=agent_name,
                 prompt=self._current_question,
-                response=self.chatbox.message,
-                # summary=self.memory.moving_summary_buffer,
-                summary=self.ag.memory,
                 model=self.llm_model_name,
                 temperature=self.llm_temperature,
-                # memory_messages=messages_to_dict(self.ag.memory),
+                memory_messages=self.ag.memory,
+            )
+
+        # If we hae a response, add the response to the current turn
+        if event.role == "assistant":
+            self.record.add_to_turn(
+                agent_name=agent_name,
+                response=self.chatbox.message,
                 memory_messages=self.ag.memory,
             )
 
@@ -746,10 +839,15 @@ class ChatApp(App):
         for turn in self.record.turns:
             self.post_message(self.AddToChatMessage(role="user", message=turn.prompt))
             self.post_message(self.EndChatTurn(role="meta"))
-            self.post_message(
-                self.AddToChatMessage(role="assistant", message=turn.response)
-            )
-            self.post_message(self.EndChatTurn(role="meta"))
+            for response in turn.responses:
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant_historical",
+                        message=response["response"],
+                        agent_name=response["agent"],
+                    )
+                )
+                self.post_message(self.EndChatTurn(role="meta"))
         self.scroll_to_end()
         self.chat_container.visible = True
 
