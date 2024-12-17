@@ -18,7 +18,7 @@ class Turn(object):
     summary: str = ""
     temperature: float = 0
     responses: list = field(default_factory=list)
-    memory_messages: list = field(default_factory=list)
+    memory_messages: dict = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now())
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 

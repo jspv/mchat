@@ -461,30 +461,10 @@ class AutogenManager(object):
         # return self.agent.prompt
         return self._prompt
 
-    @property
-    def memory(self) -> str:
+    async def get_memory(self) -> str:
         """Returns the current memory in a recoverable text format"""
-        # (class, content, source)
-        messages = []
-        for m in self.agent._model_context:
-            # FunctionExcecutionResult is the content of FunctionExecutionResultMessage
-            if isinstance(m, FunctionExecutionResultMessage):
-                messages.append(
-                    (
-                        repr(type(m.content[0])),
-                        m.content[0].content,
-                        m.content[0].call_id,
-                    )
-                )
-            else:
-                messages.append(
-                    (
-                        repr(type(m)),
-                        getattr(m, "content", None),
-                        getattr(m, "source", None),
-                    )
-                )
-        return messages
+        # save_state is async, so we need to await it
+        return await self.agent.save_state()
 
     @property
     def stream_tokens(self) -> bool:
@@ -511,7 +491,10 @@ class AutogenManager(object):
         if hasattr(self, "agent"):
             self.agent._model_context = []
 
-    def update_memory(self, messages: List[str]) -> None:
+    async def update_memory(self, state: dict) -> None:
+        await self.agent.load_state(state)
+
+    def old_update_memory(self, state: dict) -> None:
         """Update the memory witt the contents of the messages"""
 
         self.clear_memory()

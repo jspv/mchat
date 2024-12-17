@@ -151,7 +151,7 @@ class ChatApp(App):
         self.default_agent = getattr(settings, "defaults.agent", "default")
         self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
 
-    def _reinitialize_llm_model(self, messages: List[str] = []):
+    async def _reinitialize_llm_model(self, model_context: dict = {}):
         """re-initialize the language model."""
 
         self.conversation = self.ag.new_conversation(
@@ -162,8 +162,9 @@ class ChatApp(App):
 
         # if there are messages, we're restoring a historical session, create new
         # memory and reinitialize the conversation
-        if len(messages) > 0:
-            self.ag.update_memory(messages)
+
+        if model_context:
+            await self.ag.update_memory(model_context)
 
         debug_pane = self.query_one(DebugPane)
 
@@ -172,7 +173,7 @@ class ChatApp(App):
         #     lambda: self.memory.moving_summary_buffer,
         # )
 
-        debug_pane.update_status()
+        await debug_pane.update_status()
 
     def _reinitialize_image_model(self):
         """re-initialize the image model."""
@@ -207,28 +208,30 @@ class ChatApp(App):
         # Load the active conversation record
         self.record = self.query_one(HistoryContainer).active_record
 
-    def on_ready(self) -> None:
+    async def on_ready(self) -> None:
         """Called  when the DOM is ready."""
         input = self.query_one(PromptInput)
         input.focus()
 
         # populate the debug pane
         debug_pane = self.query_one(DebugPane)
-        debug_pane.add_entry("model", "LLM Model", lambda: self.llm_model_name)
-        debug_pane.add_entry("imagemodel", "Image Model", lambda: self.image_model_name)
-        debug_pane.add_entry("temp", "Temperature", lambda: self.llm_temperature)
-        debug_pane.add_entry("agent", "Agent", lambda: self.current_agent)
-        debug_pane.add_entry(
+        await debug_pane.add_entry("model", "LLM Model", lambda: self.llm_model_name)
+        await debug_pane.add_entry(
+            "imagemodel", "Image Model", lambda: self.image_model_name
+        )
+        await debug_pane.add_entry("temp", "Temperature", lambda: self.llm_temperature)
+        await debug_pane.add_entry("agent", "Agent", lambda: self.current_agent)
+        await debug_pane.add_entry(
             "question", "Question", lambda: self._current_question, collapsed=True
         )
-        debug_pane.add_entry(
+        await debug_pane.add_entry(
             "prompt", "Prompt", lambda: self.app.ag.prompt, collapsed=True
         )
 
-        debug_pane.add_entry(
+        await debug_pane.add_entry(
             "memref",
             "Memory Reference",
-            lambda: self.ag.memory,
+            self.ag.get_memory,
             collapsed=True,
         )
         # debug_pane.add_entry(
@@ -237,7 +240,7 @@ class ChatApp(App):
         #     lambda: self.memory.moving_summary_buffer,
         #     collapsed=True,
         # )
-        debug_pane.add_entry("log", "Debug Log", lambda: self.debug_log)
+        await debug_pane.add_entry("log", "Debug Log", lambda: self.debug_log)
 
         # monkey patch the debug logger so we can watch app logs in the debug pane
         app_debug_logger = self.log.debug
@@ -599,6 +602,7 @@ class ChatApp(App):
             self.post_message(self.EndChatTurn(role="meta"))
             return
         if question.startswith("stream off"):
+            self.post_message(self.EndChatTurn(role="meta"))
             self.ag.stream_tokens = False
             self.post_message(
                 self.AddToChatMessage(role="assistant", message="Stream tokens are off")
@@ -606,6 +610,7 @@ class ChatApp(App):
             self.post_message(self.EndChatTurn(role="meta"))
             return
         if question == ("stream"):
+            self.post_message(self.EndChatTurn(role="meta"))
             self.post_message(
                 self.AddToChatMessage(
                     role="assistant",
@@ -784,7 +789,7 @@ class ChatApp(App):
                 prompt=self._current_question,
                 model=self.llm_model_name,
                 temperature=self.llm_temperature,
-                memory_messages=self.ag.memory,
+                memory_messages=await self.ag.get_memory(),
             )
 
         # If we hae a response, add the response to the current turn
@@ -792,7 +797,7 @@ class ChatApp(App):
             self.record.add_to_turn(
                 agent_name=agent_name,
                 response=self.chatbox.message,
-                memory_messages=self.ag.memory,
+                memory_messages=await self.ag.get_memory(),
             )
 
             history = self.query_one(HistoryContainer)
@@ -800,7 +805,7 @@ class ChatApp(App):
 
         # Update debug pane
         debug_pane = self.query_one(DebugPane)
-        debug_pane.update_status()
+        await debug_pane.update_status()
 
         # if we have a chatbox, close it.
         self.chatbox = None
@@ -829,7 +834,7 @@ class ChatApp(App):
             self.llm_model_name = self.record.turns[-1].model
             self.llm_temperature = self.record.turns[-1].temperature
             self._current_question = self.record.turns[-1].prompt
-            self._reinitialize_llm_model(messages=self.record.turns[-1].memory_messages)
+            await self._reinitialize_llm_model(self.record.turns[-1].memory_messages)
 
         # clear the chatboxes from the chat container
         self.chat_container.remove_children()

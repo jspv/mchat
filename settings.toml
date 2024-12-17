@@ -96,8 +96,7 @@ _cost_input = 0.0001
 # chat_model = "azure_openai_gpt_4o"
 chat_model = "gpt-4o"
 chat_temperature = 0.7
-# agent = "default"
-agent = "academic_paper"
+agent = "default"
 
 image_model = "dall-e-3"
 
