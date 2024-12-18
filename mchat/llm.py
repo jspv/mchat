@@ -26,6 +26,7 @@ from autogen_agentchat.messages import (
     TextMessage,
     ToolCallMessage,
     ToolCallResultMessage,
+    ToolCallResultSummaryMessage,
 )
 from autogen_agentchat.conditions import (
     MaxMessageTermination,
@@ -612,6 +613,7 @@ class AutogenManager(object):
                 tools=tools,
                 system_message=system_message,
                 token_callback=callback,
+                reflect_on_tool_use=True,
             )
 
             # Load Extra system messages
@@ -683,6 +685,7 @@ class AutogenManager(object):
                     model_client=model_client,
                     tools=tools,
                     system_message=subagent_data["description"],
+                    reflect_on_tool_use=True,
                 )
             )
 
@@ -695,7 +698,6 @@ class AutogenManager(object):
         return team
 
     async def ask(self, message: str) -> TaskResult:
-        last_response = None
 
         async def field_responses(
             agent_run: AsyncIterable, oneshot: bool, **kwargs
@@ -713,18 +715,13 @@ class AutogenManager(object):
             -------
             None
             """
-            nonlocal last_response
             async for response in agent_run(**kwargs):
 
-                # HACK - Ingore the autogen tool call summary messages that follow a
+                # Ingore the autogen tool call summary messages that follow a
                 # tool call
-                if isinstance(last_response, ToolCallResultMessage) and isinstance(
-                    response, TextMessage
-                ):
-                    last_response = response
+                if isinstance(response, ToolCallResultSummaryMessage):
                     self.log(f"ignoring tool call summary message: {response.content}")
                     continue
-                last_response = response
 
                 # if we're streaming, we don't need to show the TextMessage, we got the
                 if isinstance(response, TextMessage):
@@ -761,8 +758,8 @@ class AutogenManager(object):
                         "done", agent=response.source, complete=True
                     )
                     continue
-                # if isinstance(response, TaskResult):
-                #     return response
+                if isinstance(response, TaskResult):
+                    return response
                 if response is None:
                     continue
                 await self._message_callback("\n\n<unknown>\n\n", flush=True)
