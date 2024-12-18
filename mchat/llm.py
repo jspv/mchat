@@ -1,4 +1,15 @@
-from typing import List, Callable, Optional, Dict, Set, List, Union, cast, Literal
+from typing import (
+    List,
+    Callable,
+    Optional,
+    Dict,
+    Set,
+    List,
+    Union,
+    cast,
+    Literal,
+    AsyncIterable,
+)
 from dataclasses import dataclass, fields
 
 from pydantic import BaseModel, Field
@@ -13,30 +24,29 @@ import copy
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.messages import (
     TextMessage,
-    AgentMessage,
     ToolCallMessage,
     ToolCallResultMessage,
 )
 from autogen_agentchat.conditions import (
     MaxMessageTermination,
     TextMentionTermination,
+    ExternalTermination,
 )
 from autogen_agentchat.base import Response, TaskResult
 from autogen_core import CancellationToken
-from autogen_ext.models import (
+from autogen_ext.models.openai import (
     OpenAIChatCompletionClient,
     AzureOpenAIChatCompletionClient,
 )
-from autogen_core.components.models import (
+
+from autogen_core.models import (
     FunctionExecutionResultMessage,
     FunctionExecutionResult,
-    LLMMessage,
     SystemMessage,
     UserMessage,
     AssistantMessage,
 )
 from autogen_core.components.tools import FunctionTool
-from autogen_agentchat.conditions import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 
 from config import settings
@@ -591,7 +601,8 @@ class AutogenManager(object):
 
             # Don't use system messages if not supported
             if self.mm.get_system_prompt_support(model_id):
-                system_message = self.prompt
+                # system_message = f"{self._prompt}\nAfter each response, type 'TERMINATE' to end the conversation"
+                system_message = self._prompt
             else:
                 system_message = None
 
@@ -620,7 +631,9 @@ class AutogenManager(object):
                 else:
                     raise ValueError(f"Unknown extra context type {extra[0]}")
 
-            termination = MaxMessageTermination(max_messages=2)
+            termination_1 = MaxMessageTermination(max_messages=10)
+            self.terminator = ExternalTermination()
+            termination = termination_1 | self.terminator
             self.agent_team = RoundRobinGroupChat(
                 [self.agent], termination_condition=termination
             )
@@ -681,46 +694,59 @@ class AutogenManager(object):
         team = RoundRobinGroupChat(agents, termination_condition=termination)
         return team
 
-    async def ask(self, message: str) -> None:
-        async def assistant_run_stream() -> None:
-            async for response in self.agent.on_messages_stream(
-                [TextMessage(content=message, source="user")],
-                cancellation_token=CancellationToken(),
-            ):
-                if isinstance(response, Response) and isinstance(
-                    response.chat_message, TextMessage
+    async def ask(self, message: str) -> TaskResult:
+        last_response = None
+
+        async def field_responses(
+            agent_run: AsyncIterable, oneshot: bool, **kwargs
+        ) -> None:
+            """Run the agent (or team) and handle the responses
+
+            Parameters
+            ----------
+            agent_run : AsyncIterable
+                Function to run the agent
+            oneshot : bool
+                should the agent auto terminate after the first response
+
+            Returns
+            -------
+            None
+            """
+            nonlocal last_response
+            async for response in agent_run(**kwargs):
+
+                # HACK - Ingore the autogen tool call summary messages that follow a
+                # tool call
+                if isinstance(last_response, ToolCallResultMessage) and isinstance(
+                    response, TextMessage
                 ):
-                    await self._message_callback(
-                        response.chat_message.content, flush=True
-                    )
+                    last_response = response
+                    self.log(f"ignoring tool call summary message: {response.content}")
+                    continue
+                last_response = response
 
-        async def assistant_run() -> None:
-            response = await self.agent.on_messages(
-                [TextMessage(content=message, source="user")],
-                cancellation_token=CancellationToken(),
-            )
-
-        async def team_run_stream(task: str) -> None:
-            # Generate a cancelation token
-            self._cancelation_token = CancellationToken()
-
-            async for response in self.agent_team.run_stream(
-                task=message, cancellation_token=self._cancelation_token
-            ):
+                # if we're streaming, we don't need to show the TextMessage, we got the
                 if isinstance(response, TextMessage):
-                    # ignore these, it is a repeat of the user message
+                    # ignore "user", it is a repeat of the user message
                     if response.source == "user":
                         continue
                     # if we're streaming no need to show TextMessage, we got the
                     # tokens already
-                    elif self._currently_streaming:
-                        continue
-                    # not streaming, so send the response
-                    else:
+                    if not self._currently_streaming:
                         await self._message_callback(
                             response.content, agent=response.source, complete=True
                         )
+                    if oneshot:
+                        # cleanly terminate the conversation
+                        self.terminator.set()
+                        response = TaskResult(
+                            messages=[response], stop_reason="oneshot"
+                        )
+                        break
+                    else:
                         continue
+
                 if isinstance(response, ToolCallMessage):
                     tool_message = "calling tool\n"
                     for tool in response.content:
@@ -735,16 +761,61 @@ class AutogenManager(object):
                         "done", agent=response.source, complete=True
                     )
                     continue
-                if isinstance(response, TaskResult):
-                    return response
+                # if isinstance(response, TaskResult):
+                #     return response
                 if response is None:
                     continue
                 await self._message_callback("\n\n<unknown>\n\n", flush=True)
                 await self._message_callback(repr(response), flush=True)
+            return response
 
-        # tokens are returned via the callback
-        result = await team_run_stream(task=message)
-        self.logger(f"result: {result.stop_reason}")
+        async def team_run_stream(task: str, oneshot: bool = False) -> TaskResult:
+            """Run the team and handle the responses
+
+            Parameters
+            ----------
+            task : str
+                Task for the team to run
+            oneshot : bool, optional
+                Terminate after first response (single agent teams), by default False
+            """
+            # Generate a cancelation token
+            self._cancelation_token = CancellationToken()
+            response = await field_responses(
+                self.agent_team.run_stream,
+                oneshot=oneshot,
+                task=message,
+                cancellation_token=self._cancelation_token,
+            )
+            return response
+
+        # Not using this, keeping it here in case I want to revisit
+        async def assistant_run() -> None:
+            response = await self.agent.on_messages(
+                [TextMessage(content=message, source="user")],
+                cancellation_token=CancellationToken(),
+            )
+
+        # Not using this as it was cumbersome and cleaner to support single-agent
+        # teams, leaving it here in case I want to revisit.
+        async def agent_run_stream(task: str) -> None:
+            # Generate a cancelation token
+            self._cancelation_token = CancellationToken()
+            await field_responses(
+                self.agent.on_messages_stream,
+                messages=[TextMessage(content=task, source="user")],
+                cancellation_token=self._cancelation_token,
+            )
+
+        # if there is only one agent in the team, just run the agent
+        if len(self.agent_team._participants) == 1:
+            result = await team_run_stream(task=message, oneshot=True)
+        else:
+            result = await team_run_stream(task=message)
+
+        # result = await team_run_stream(task=message)
+        # self.logger(f"result: {result.stop_reason}")
+        self.log(f"result: {result.stop_reason}")
 
 
 class LLMTools:

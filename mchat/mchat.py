@@ -46,6 +46,10 @@ class StreamTokenCallback(object):
         # if an agent is set, note it in the message
         agent_name = kwargs.get("agent", None)
 
+        # if the token is empty, don't post it
+        if token == "":
+            return
+
         self.app.post_message(
             self.app.AddToChatMessage(
                 role="assistant", message=token, agent_name=agent_name
