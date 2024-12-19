@@ -12,7 +12,6 @@ from typing import (
 )
 from dataclasses import dataclass, fields
 
-from pydantic import BaseModel, Field
 from pydantic.networks import HttpUrl
 
 
@@ -24,9 +23,9 @@ import copy
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.messages import (
     TextMessage,
-    ToolCallMessage,
-    ToolCallResultMessage,
-    ToolCallResultSummaryMessage,
+    ToolCallRequestEvent,
+    ToolCallExecutionEvent,
+    ToolCallSummaryMessage,
 )
 from autogen_agentchat.conditions import (
     MaxMessageTermination,
@@ -719,7 +718,7 @@ class AutogenManager(object):
 
                 # Ingore the autogen tool call summary messages that follow a
                 # tool call
-                if isinstance(response, ToolCallResultSummaryMessage):
+                if isinstance(response, ToolCallSummaryMessage):
                     self.log(f"ignoring tool call summary message: {response.content}")
                     continue
 
@@ -744,7 +743,7 @@ class AutogenManager(object):
                     else:
                         continue
 
-                if isinstance(response, ToolCallMessage):
+                if isinstance(response, ToolCallRequestEvent):
                     tool_message = "calling tool\n"
                     for tool in response.content:
                         tool_message += (
@@ -753,7 +752,7 @@ class AutogenManager(object):
                     tool_message += "..."
                     await self._message_callback(tool_message, agent=response.source)
                     continue
-                if isinstance(response, ToolCallResultMessage):
+                if isinstance(response, ToolCallExecutionEvent):
                     await self._message_callback(
                         "done", agent=response.source, complete=True
                     )
