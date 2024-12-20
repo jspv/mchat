@@ -1,29 +1,25 @@
-from typing import Any
-
 from dataclasses import dataclass
-
-from rich.markdown import Markdown
-
-from textual.widgets import Markdown as MarkdownWidget, Static
-from textual.containers import Vertical
-from textual.widget import Widget
-from textual.message import Message
-from textual.app import ComposeResult
-from textual import on
-
-from textual.geometry import Size
-
+from typing import Any
 from webbrowser import open_new_tab
 
+from rich.markdown import Markdown
+from textual import on
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.geometry import Size
+from textual.message import Message
+from textual.widget import Widget
+from textual.widgets import Markdown as MarkdownWidget
+from textual.widgets import Static
 
 """
 Design:
 
 ChatTurn is a widget that displays a 'turn' in a chat window. Each message
-back and forth will be a different ChatTurn widget. A sequence of ChatTurns 
+back and forth will be a different ChatTurn widget. A sequence of ChatTurns
 is generally displayed in a Vertical container.
 
-Each turn will be a prompt from the user and some number of responses from 
+Each turn will be a prompt from the user and some number of responses from
 the underlying agent(s); multiple responses are possible if the agent is a
 group of agents.
 
@@ -32,11 +28,11 @@ group of agents.
 
 # Testing using MarkdownWidget instead of a Static rendering Markdown
 class ChatTurn(Widget):
-    def __init__(self, message="", role=None, title=None, *args, **kwargs) -> None:
+    def __init__(self, message="", role=None, title=None, **kwargs) -> None:
         self.message = message
         self.role = role
         self.title = title
-        super().__init__(classes=role, *args, **kwargs)
+        super().__init__(classes=role, **kwargs)
 
     def compose(self) -> ComposeResult:
         with Vertical(classes=self.role, id="chatturn-container"):
@@ -69,12 +65,12 @@ class ChatTurn(Widget):
 
 
 class OldChatTurn(Widget, can_focus=True):
-    def __init__(self, message="", role=None, *args, **kwargs) -> None:
+    def __init__(self, message="", role=None, **kwargs) -> None:
         self.message = message
         self.role = role
-        super().__init__(classes=role, *args, **kwargs)
+        super().__init__(classes=role, **kwargs)
 
-    def compose(self) -> None:
+    def compose(self) -> ComposeResult:
         with Vertical(classes=self.role, id="chatturn-container"):
             self.md = Static(classes=self.role, id="chatturn-markdown")
             yield self.md

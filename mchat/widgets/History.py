@@ -1,21 +1,18 @@
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+import apsw.bestpractice
+from rich.text import Text
+from textual import events, on
+from textual.app import ComposeResult
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import Click
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
-from textual.message import Message
-from textual.containers import VerticalScroll, Vertical, Horizontal
-from textual.app import ComposeResult
-from textual import events
-from textual.events import Click
-from textual import on
-from dataclasses import dataclass
-from rich.text import Text
-
-from datetime import datetime, timedelta, timezone
 
 from mchat.Conversation import ConversationRecord
 from mchat.llm import LLMTools
-
-import apsw.bestpractice
-
 
 """
 Design:

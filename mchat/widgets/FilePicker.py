@@ -1,18 +1,16 @@
-from typing import List
-from textual.app import ComposeResult
-from textual.screen import ModalScreen
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widget import Widget
-from textual.widgets import Button, Static, DirectoryTree
-from textual.message import Message
-from textual.events import Click
-from textual.css.query import NoMatches
-from textual import on
 from dataclasses import dataclass
-
-
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
+
+from textual import on
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
+from textual.events import Click
+from textual.message import Message
+from textual.screen import ModalScreen
+from textual.widget import Widget
+from textual.widgets import Button, DirectoryTree, Static
 
 
 class FilteredDirectoryTree(DirectoryTree):

@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from textual import events, on
+from textual.css.scalar import Scalar
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Label, TextArea
-from textual.css.scalar import Scalar
 
 
 class MultiLineInput(TextArea):

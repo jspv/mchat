@@ -9,7 +9,6 @@ from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 from rich.highlighter import Highlighter
 from rich.segment import Segment
 from rich.text import Text
-
 from textual import events
 from textual._segment_tools import line_crop
 from textual.binding import Binding, BindingType

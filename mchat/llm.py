@@ -1,60 +1,47 @@
-from typing import (
-    List,
-    Callable,
-    Optional,
-    Dict,
-    Set,
-    List,
-    Union,
-    cast,
-    Literal,
-    AsyncIterable,
-)
+import asyncio
+import copy
+import http.client
+import logging
 from dataclasses import dataclass, fields
+from functools import partial
+from typing import (
+    AsyncIterable,
+    Callable,
+    Dict,
+    Literal,
+)
 
-from pydantic.networks import HttpUrl
-
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.base import TaskResult
+from autogen_agentchat.conditions import (
+    ExternalTermination,
+    MaxMessageTermination,
+    TextMentionTermination,
+)
+from autogen_agentchat.messages import (
+    TextMessage,
+    ToolCallExecutionEvent,
+    ToolCallRequestEvent,
+    ToolCallSummaryMessage,
+)
+from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_core import CancellationToken
+from autogen_core.components.tools import FunctionTool
+from autogen_core.models import (
+    AssistantMessage,
+    SystemMessage,
+    UserMessage,
+)
+from autogen_ext.models.openai import (
+    AzureOpenAIChatCompletionClient,
+    OpenAIChatCompletionClient,
+)
 
 # No Dall-e support in langhchain OpenAI, so use the native
 from openai import OpenAI
-
-import copy
-
-from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.messages import (
-    TextMessage,
-    ToolCallRequestEvent,
-    ToolCallExecutionEvent,
-    ToolCallSummaryMessage,
-)
-from autogen_agentchat.conditions import (
-    MaxMessageTermination,
-    TextMentionTermination,
-    ExternalTermination,
-)
-from autogen_agentchat.base import Response, TaskResult
-from autogen_core import CancellationToken
-from autogen_ext.models.openai import (
-    OpenAIChatCompletionClient,
-    AzureOpenAIChatCompletionClient,
-)
-
-from autogen_core.models import (
-    FunctionExecutionResultMessage,
-    FunctionExecutionResult,
-    SystemMessage,
-    UserMessage,
-    AssistantMessage,
-)
-from autogen_core.components.tools import FunctionTool
-from autogen_agentchat.teams import RoundRobinGroupChat
+from pydantic.networks import HttpUrl
 
 from config import settings
-from functools import partial
-import asyncio
-
-import logging
-import http.client
 
 from .llmtool_web_search import google_search
 
@@ -442,7 +429,10 @@ class AutogenManager(object):
         self.tools = {}
         self.tools["google_search"] = FunctionTool(
             google_search,
-            description="Search Google for information, returns results with a snippet and body content",
+            description=(
+                "Search Google for information, returns results with a snippet and "
+                "body content"
+            ),
         )
 
     @property
@@ -504,40 +494,40 @@ class AutogenManager(object):
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
 
-    def old_update_memory(self, state: dict) -> None:
-        """Update the memory witt the contents of the messages"""
+    # def old_update_memory(self, state: dict) -> None:
+    #     """Update the memory witt the contents of the messages"""
 
-        self.clear_memory()
+    #     self.clear_memory()
 
-        # Parse the messages and add them to the memory, we're expecting them
-        # to be in the format of a list of strings, where each string is the
-        # tuple representation of a message object, content, and source
+    #     # Parse the messages and add them to the memory, we're expecting them
+    #     # to be in the format of a list of strings, where each string is the
+    #     # tuple representation of a message object, content, and source
 
-        for objectname, content, source in messages:
-            if objectname.endswith("UserMessage'>"):
-                msg_type = UserMessage
-                msg_args = {"content": content, "source": source}
-            elif objectname.endswith("AssistantMessage'>"):
-                msg_type = AssistantMessage
-                msg_args = {"content": content, "source": source}
-            elif objectname.endswith("SystemMessage.>"):
-                msg_type = SystemMessage
-                msg_args = {"content": content, "source": source}
-            elif objectname.endswith("ToolCallMessage'>"):
-                msg_type = ToolCallMessage
-                msg_args = {"content": content, "source": source}
-            elif objectname.endswith("FunctionExecutionResult'>"):
-                msg_type = FunctionExecutionResultMessage
-                msg_args = {
-                    "content": [
-                        FunctionExecutionResult(call_id=source, content=content)
-                    ]
-                }
-            else:
-                raise ValueError(f"Unexpected message type: {objectname}")
+    #     for objectname, content, source in messages:
+    #         if objectname.endswith("UserMessage'>"):
+    #             msg_type = UserMessage
+    #             msg_args = {"content": content, "source": source}
+    #         elif objectname.endswith("AssistantMessage'>"):
+    #             msg_type = AssistantMessage
+    #             msg_args = {"content": content, "source": source}
+    #         elif objectname.endswith("SystemMessage.>"):
+    #             msg_type = SystemMessage
+    #             msg_args = {"content": content, "source": source}
+    #         elif objectname.endswith("ToolCallMessage'>"):
+    #             msg_type = ToolCallMessage
+    #             msg_args = {"content": content, "source": source}
+    #         elif objectname.endswith("FunctionExecutionResult'>"):
+    #             msg_type = FunctionExecutionResultMessage
+    #             msg_args = {
+    #                 "content": [
+    #                     FunctionExecutionResult(call_id=source, content=content)
+    #                 ]
+    #             }
+    #         else:
+    #             raise ValueError(f"Unexpected message type: {objectname}")
 
-            # Add the appropriate object to the memory
-            self.agent._model_context.append(msg_type(**msg_args))
+    #         # Add the appropriate object to the memory
+    #         self.agent._model_context.append(msg_type(**msg_args))
 
     def new_conversation(self, agent: dict, model_id, temperature: float = 0.0) -> None:
         """Intialize a new conversation with the given agent and model
@@ -552,14 +542,14 @@ class AutogenManager(object):
             model temperature setting, by default 0.0
         """
 
-        """ 
+        """
         Thoughts:  model_id and temperature will be for the agent that is interacting
         with the user.  For single-model agents, this will be the same as going straight
         to the model.
 
-        For multi-agent teams, it will only affect the agent that is currently 
-        interacting with the user.  The other agents in the team will have their own 
-        model_id and temperature settings from the agent dictionary, or will use the 
+        For multi-agent teams, it will only affect the agent that is currently
+        interacting with the user.  The other agents in the team will have their own
+        model_id and temperature settings from the agent dictionary, or will use the
         default.
         """
 
@@ -601,7 +591,10 @@ class AutogenManager(object):
 
             # Don't use system messages if not supported
             if self.mm.get_system_prompt_support(model_id):
-                # system_message = f"{self._prompt}\nAfter each response, type 'TERMINATE' to end the conversation"
+                # system_message = (
+                #     f"{self._prompt}\nAfter each response, type 'TERMINATE' to "
+                #     "end the conversation"
+                # )
                 system_message = self._prompt
             else:
                 system_message = None
@@ -697,7 +690,6 @@ class AutogenManager(object):
         return team
 
     async def ask(self, message: str) -> TaskResult:
-
         async def field_responses(
             agent_run: AsyncIterable, oneshot: bool, **kwargs
         ) -> None:
@@ -715,7 +707,6 @@ class AutogenManager(object):
             None
             """
             async for response in agent_run(**kwargs):
-
                 # Ingore the autogen tool call summary messages that follow a
                 # tool call
                 if isinstance(response, ToolCallSummaryMessage):
@@ -876,20 +867,20 @@ class LLMTools:
         out = await model_client.create([SystemMessage(content=system_message)])
         return out.content
 
-    def _parse_chat_history(self, history: list, max_turns: int | None = None) -> list:
-        """Parses the chat history into a list of conversation turns"""
-        if len(history) == 0:
-            return "There is no conversation history, this is the first message"
+    # def _parse_chat_history(self, history: list, max_turns: int | None = None) -> list:
+    #     """Parses the chat history into a list of conversation turns"""
+    #     if len(history) == 0:
+    #         return "There is no conversation history, this is the first message"
 
-        if max_turns:
-            history = history[-max_turns:]
+    #     if max_turns:
+    #         history = history[-max_turns:]
 
-        chat_history = []
+    #     chat_history = []
 
-        for message in history:
-            content = cast(str, message.content)
-            if isinstance(message, HumanMessage):
-                chat_history.append({f'"Human": {content}'})
-            if isinstance(message, AIMessage):
-                chat_history.append({f'"AI: {content}'})
-        return chat_history
+    #     for message in history:
+    #         content = cast(str, message.content)
+    #         if isinstance(message, HumanMessage):
+    #             chat_history.append({f'"Human": {content}'})
+    #         if isinstance(message, AIMessage):
+    #             chat_history.append({f'"AI: {content}'})
+    #     return chat_history

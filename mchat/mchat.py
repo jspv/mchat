@@ -1,33 +1,27 @@
-import os
-import asyncio
 import argparse
+import asyncio
+import os
+from typing import Callable, List
+
 import pyperclip
-
-from config import settings
-
-from typing import Any, Dict, List, Optional, Callable
-
 from retry import retry
-
+from textual import events, on, work
 from textual.app import App, ComposeResult, Logger
-from textual.widgets import Header, Footer
-from textual.containers import VerticalScroll, Vertical, Horizontal
-from textual.reactive import Reactive
-from textual.css.query import NoMatches
-from textual import on, work
-from textual import events
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
+from textual.reactive import Reactive
+from textual.widgets import Footer, Header
 from textual.worker import Worker
 from textual_dominfo import DOMInfo
 
-
+from config import settings
+from mchat.llm import AutogenManager, LLMTools, ModelManager
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
-from mchat.widgets.PromptInput import PromptInput
-from mchat.widgets.History import HistoryContainer
 from mchat.widgets.Dialog import Dialog
 from mchat.widgets.FilePicker import FilePickerDialog
-from mchat.llm import AutogenManager, ModelManager, LLMTools
+from mchat.widgets.History import HistoryContainer
+from mchat.widgets.PromptInput import PromptInput
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.json"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
@@ -72,7 +66,8 @@ class ChatApp(App):
         ("ctrl+g", "toggle_debug", "Toggle debug mode"),
         (
             "ctrl+q",
-            "confirm_y_n('[bold]Quit?[/bold] Y/N', 'my_quit', 'dialog_close', '[Quit]')",
+            "confirm_y_n('[bold]Quit?[/bold] Y/N', 'my_quit', 'dialog_close', "
+            "'[Quit]')",
             "Quit",
         ),
         (
@@ -328,7 +323,6 @@ class ChatApp(App):
     def action_my_quit(self) -> None:
         """Quit the app."""
         self.log.debug("Quitting")
-        print("Quitting")
         self.app.exit()
 
     def action_show_file(self) -> None:
@@ -508,10 +502,14 @@ class ChatApp(App):
                 self.AddToChatMessage(role="assistant", message="- Image Models:\n")
             )
             for model in self.available_image_models:
-                self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n"),
-                    agent_name="meta",
-                ),
+                (
+                    self.post_message(
+                        self.AddToChatMessage(
+                            role="assistant", message=f"   - {model}\n"
+                        ),
+                        agent_name="meta",
+                    ),
+                )
             self._current_question = ""
             self.post_message(self.EndChatTurn(role="meta"))
             return
@@ -618,7 +616,10 @@ class ChatApp(App):
             self.post_message(
                 self.AddToChatMessage(
                     role="assistant",
-                    message=f"Stream tokens are {'on' if self.ag.stream_tokens else 'off'}",
+                    message=(
+                        f"Stream tokens are "
+                        f"{'on' if self.ag.stream_tokens else 'off'}"
+                    ),
                 )
             )
             self.post_message(self.EndChatTurn(role="meta"))

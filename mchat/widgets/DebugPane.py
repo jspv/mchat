@@ -1,11 +1,8 @@
 from textual.widgets import Static, Collapsible
-from textual.reactive import Reactive
 from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from rich.console import RenderableType
-from rich.text import Text
 from typing import Callable
-from rich.padding import Padding
 import asyncio
 
 
