@@ -8,19 +8,30 @@ Header {
     dock: top;
 }
 
+# Right hand side of tehe screen, contains chat area and input
+#right-pane {
+    height: auto;
+    # border: white;
+}
+
+
 /* Chat Area */
 
+# each message from the user or assistant is a ChatTurn, this is the 
+# whole container for the turn
 ChatTurn {
     # border: solid yellow; 
     height: auto;
     padding: 1 2;
 }
 
+# the container for the entire chat area
 #chat-container {
     # border: green;
 
 }
 
+# internal container for the chat area, inside the ChatTurn
 #chatturn-container {
     height: auto;
     # border: red;
@@ -32,10 +43,6 @@ ChatTurn {
     margin: 0 0 0 0;
 }
 
-#right-pane {
-    height: auto;
-    # border: white;
-}
 
 MarkdownParagraph {
     # border: orange;
@@ -52,32 +59,21 @@ ChatTurn .assistant {
 }
 
 .user #chatturn-markdown {
-    /* border: $primary; */
-    /* color: $primary; */
-    /* background: $boost; */
     color: $text;
     padding: 0 0 0 0;
-
     background: $primary-background;
-    border: $primary-background;
+    border: $primary-background-lighten-2;
     width: 70%;
 }
 
 .assistant #chatturn-markdown {
-    border: $secondary-background-darken-1;
+    border: $secondary-background-lighten-1;
+    padding: 0 0 0 0;
     # padding: 1 1 0 1;
     color: $text;
     background: $secondary-background-darken-1;
     width: 70%;
 }
-
-# #chat-container {
-#     border: round $primary;
-#     /* box-sizing: content-box; */
-
-#     /* height: auto; */
-#     /* height: 20; */
-# }
 
 #spacer {
     border: red;
@@ -86,6 +82,7 @@ ChatTurn .assistant {
 }
 
 /* Input Area */
+
 /* Prompt Input is the full input area for the user including the label and input area
 and its surrounding Scrollbar */
 PromptInput {
@@ -94,21 +91,14 @@ PromptInput {
     margin-left: 1;
     margin-right: 1;
     padding-right: 1;
-    /* border: round green; */
+    # border: round green;
     # dock: bottom;
 }
 
 /* MultiLineInput is the inputarea inside the scrollbar */
-TextArea2 {
-    border: red;
-    border-title-color: $secondary;
-    border-title-background: $primary;
-    border-title-align: right;
-    border-title-style: bold;
-}
 
 MultiLineInput {
-    border: $primary-background;
+    border: $primary-background-lighten-2;
     background: $primary-background;
     overflow-x: auto
 }
@@ -152,11 +142,14 @@ DebugPane Collapsible Contents {
 /* History Pane */
 HistoryContainer {
     border: $primary-background;
-    width: 15%
+    width: 16%
 }
 
+# History area
+
+# Each individual history summary box
 HistorySessionBox {
-    /* border: green; */
+    # border: green; 
     background: $panel;
     padding: 0;
     margin: 0;
@@ -173,22 +166,22 @@ HistorySessionBox {
     /* content-align: center middle; */
     /* text-style: bold; */
 }
-
+# the text summary in the HistorySessionBox
 SummaryBox {
-    /* border: red; */
-    /* height: 6; */
+    # border: red;
+    # height: 6;
 }
 
 HistorySessionBox.-active {
     background: $primary-background;
 }
 
+# the box containing the date and history management buttons
 HistorySessionBox Horizontal {
     height: 1;
-    /* border: green; */
+    # border: green;
     box-sizing: content-box;
 }
-
 
 #history-session-box-label {
     width: 15;

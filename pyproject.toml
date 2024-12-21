@@ -14,9 +14,11 @@ dependencies = [
     "rich>=13.9.4",
     "retry>=0.9.2",
     "autogen-core",
-    "autogen-ext",
     "autogen-agentchat",
     "apsw>=3.47.2.0",
+    "beautifulsoup4>=4.12.3",
+    "autogen-ext[azure]",
+    "click>=8.1.7",
 ]
 
 [dependency-groups]
@@ -24,11 +26,12 @@ dev = ["poethepoet>=0.31.1", "ruff>=0.8.4", "textual-dev>=1.7.0"]
 
 [tool.uv.sources]
 autogen-core = { path = "../autogen/python/packages/autogen-core", editable = true }
-autogen-ext = { path = "../autogen/python/packages/autogen-ext", editable = true }
 autogen-agentchat = { path = "../autogen/python/packages/autogen-agentchat", editable = true }
+autogen-ext = { path = "../autogen/python/packages/autogen-ext", editable = true }
 
 [tool.poe.tasks]
 mchat = "python -m mchat.mchat"
+devmchat = "textual run --dev mchat.mchat"
 
 # Same as Black.
 [tool.ruff]
