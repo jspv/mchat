@@ -290,7 +290,9 @@ class ChatApp(App):
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
-        self.dark = not self.dark
+        self.theme = (
+            "textual-dark" if self.theme == "solarized-light" else "solarized-light"
+        )
 
     def action_toggle_debug(self) -> None:
         """An action to toggle debug mode."""

@@ -75,7 +75,7 @@ class PromptInput(Widget):
     def __init__(
         self,
         prompt: str = "Press [b]Enter[/] to submit, [b]Shift-⬇[/] for a newline, "
-        + "and [b]Ctrl+C[/] to exit.",
+        + "and [b]Ctrl+q[/] to exit.",
         *args,
         **kwargs,
     ) -> None:
