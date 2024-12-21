@@ -161,10 +161,12 @@ cython_debug/
 
 .vscode/
 dev-examples/
+testing/
 *.private
 *.ipynb
-extra_personas.json
+agents.yaml
 db.*
+.python-version
 
 # Ignore dynaconf secret files
 .secrets.*
