@@ -11,7 +11,6 @@ dependencies = [
     "pyperclip>=1.9.0",
     "dynaconf>=3.2.6",
     "textual-serve>=1.1.1",
-    "chromadb>=0.5.23",
     "rich>=13.9.4",
     "retry>=0.9.2",
     "autogen-core",

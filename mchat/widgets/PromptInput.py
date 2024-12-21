@@ -46,33 +46,14 @@ class MultiLineInput(TextArea):
     def handle_changed(self, event: events) -> None:
         """Check if the size of the TextArea has changed and refresh if necessary."""
 
-        # smarter scrolling, if the text is longer than the visible area, insert a
-        # newline to force scrolling
-
-        # get current visbile width of the TextArea
-        width = self.size.width
-        # get the current virtual size, add room for scrollbar if needed
-        virtual_width = self.virtual_size.width
-        if virtual_width > width:
-            # Add room for horizontal scrollbar
-            if self.styles.height.cells == self.starting_height.cells:
-                self.scrollpad = 1
-        else:
-            self.scrollpad = 0
-
         # Grow to up to 8 lines before scrolling
-        height = self.text.count("\n")
+        height = self.wrapped_document.height - 1
         if height <= 8:
             self.styles.height = Scalar.from_number(
                 height + self.starting_height.cells + self.scrollpad
             )
         else:
             self.styles.height = Scalar.from_number(8 + self.starting_height.cells)
-
-        # self.log.debug(f"TextArea Width: {width}")
-        # self.log.debug(f"TextArea Virtual Width: {virtual_width}")
-        # self.log.debug(f"TextArea Height: {self.styles.height}")
-        # self.log.debug(f"TextArea Starting Height: {self.starting_height}")
 
     @dataclass
     class Submitted(Message):
