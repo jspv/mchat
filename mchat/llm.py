@@ -403,13 +403,13 @@ class AutogenManager(object):
     def __init__(
         self,
         message_callback: Callable | None = None,
-        agents: dict = {},
+        agents: dict | None = None,
         stream_tokens: bool = True,
         logger: Callable | None = None,
     ):
         self.mm = ModelManager()
         self._message_callback = message_callback
-        self._agents = agents
+        self._agents = agents if agents is not None else {}
         self._stream_tokens = stream_tokens
         self._logger_callback = logger
 
@@ -451,7 +451,9 @@ class AutogenManager(object):
         if self._logger_callback:
             self._logger_callback(message)
 
-    def new_agent(self, agent_name, model_name, prompt, tools=[]) -> None:
+    def new_agent(
+        self, agent_name, model_name, prompt, tools: list | None = None
+    ) -> None:
         """Create a new agent with the given name, model, tools, and prompt"""
         pass
 
@@ -692,7 +694,7 @@ class AutogenManager(object):
     async def ask(self, message: str) -> TaskResult:
         async def field_responses(
             agent_run: AsyncIterable, oneshot: bool, **kwargs
-        ) -> None:
+        ) -> TaskResult:
             """Run the agent (or team) and handle the responses
 
             Parameters
@@ -704,7 +706,7 @@ class AutogenManager(object):
 
             Returns
             -------
-            None
+            TaskResult
             """
             async for response in agent_run(**kwargs):
                 # Ingore the autogen tool call summary messages that follow a
@@ -768,7 +770,7 @@ class AutogenManager(object):
             """
             # Generate a cancelation token
             self._cancelation_token = CancellationToken()
-            response = await field_responses(
+            response: TaskResult = await field_responses(
                 self.agent_team.run_stream,
                 oneshot=oneshot,
                 task=message,
@@ -782,6 +784,7 @@ class AutogenManager(object):
                 [TextMessage(content=message, source="user")],
                 cancellation_token=CancellationToken(),
             )
+            return response
 
         # Not using this as it was cumbersome and cleaner to support single-agent
         # teams, leaving it here in case I want to revisit.
@@ -866,21 +869,3 @@ class LLMTools:
         system_message = summary_prompt.format(conversation=conversation)
         out = await model_client.create([SystemMessage(content=system_message)])
         return out.content
-
-    # def _parse_chat_history(self, history: list, max_turns: int | None = None) -> list:
-    #     """Parses the chat history into a list of conversation turns"""
-    #     if len(history) == 0:
-    #         return "There is no conversation history, this is the first message"
-
-    #     if max_turns:
-    #         history = history[-max_turns:]
-
-    #     chat_history = []
-
-    #     for message in history:
-    #         content = cast(str, message.content)
-    #         if isinstance(message, HumanMessage):
-    #             chat_history.append({f'"Human": {content}'})
-    #         if isinstance(message, AIMessage):
-    #             chat_history.append({f'"AI: {content}'})
-    #     return chat_history

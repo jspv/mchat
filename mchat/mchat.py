@@ -150,7 +150,7 @@ class ChatApp(App):
         self.default_agent = getattr(settings, "defaults.agent", "default")
         self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
 
-    async def _reinitialize_llm_model(self, model_context: dict = {}):
+    async def _reinitialize_llm_model(self, model_context: dict | None = None):
         """re-initialize the language model."""
 
         self.conversation = self.ag.new_conversation(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from textual import events, on
+from textual.app import ComposeResult
 from textual.css.scalar import Scalar
 from textual.message import Message
 from textual.widget import Widget
@@ -100,7 +101,7 @@ class PromptInput(Widget):
         self.prompt = prompt
         super().__init__(*args, **kwargs)
 
-    def compose(self) -> None:
+    def compose(self) -> ComposeResult:
         self.instructions_label = Label(
             self.prompt,
             id="instructions",

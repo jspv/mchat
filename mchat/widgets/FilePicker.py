@@ -32,9 +32,9 @@ class FilteredDirectoryTree(DirectoryTree):
                 returned.append(path)
         return returned
 
-    def __init__(self, path: Path, extensions: List[str] = [], **kwargs):
+    def __init__(self, path: Path, extensions: List[str] | None = None, **kwargs):
         absolute_path = str(Path(path).absolute())
-        self.extensions = extensions
+        self.extensions = extensions if extensions is not None else []
         super().__init__(path=absolute_path, **kwargs)
 
 
@@ -128,12 +128,12 @@ class FilePickerDialog(ModalScreen):
         noconfirm_action: str | None = None,
         name: str | None = None,
         id: str | None = "file_picker",
-        extensions: List[str] = [],
+        extensions: List[str] | None = None,
         classes: str | None = None,
     ):
         self.confirm_action = confirm_action
         self.noconfirm_action = noconfirm_action
-        self.extensions = extensions
+        self.extensions = extensions if extensions is not None else []
         # actual message will be set using set_message()
         self._message = ""
 
