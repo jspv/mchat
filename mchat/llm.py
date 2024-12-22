@@ -26,12 +26,12 @@ from autogen_agentchat.messages import (
 )
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_core import CancellationToken
-from autogen_core.components.tools import FunctionTool
 from autogen_core.models import (
     AssistantMessage,
     SystemMessage,
     UserMessage,
 )
+from autogen_core.tools import FunctionTool
 from autogen_ext.models.openai import (
     AzureOpenAIChatCompletionClient,
     OpenAIChatCompletionClient,

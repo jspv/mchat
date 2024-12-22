@@ -19,6 +19,7 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "autogen-ext[azure]",
     "click>=8.1.7",
+    "pypdf2>=3.0.1",
 ]
 
 [dependency-groups]

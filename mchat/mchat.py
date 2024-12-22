@@ -1,9 +1,11 @@
 import argparse
 import asyncio
+import json
 import os
 from typing import Callable, List
 
 import pyperclip
+import yaml
 from retry import retry
 from textual import events, on, work
 from textual.app import App, ComposeResult, Logger
@@ -23,7 +25,7 @@ from mchat.widgets.FilePicker import FilePickerDialog
 from mchat.widgets.History import HistoryContainer
 from mchat.widgets.PromptInput import PromptInput
 
-DEFAULT_AGENT_FILE = "mchat/default_agents.json"
+DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
 
 
@@ -99,27 +101,35 @@ class ChatApp(App):
 
         # load standard agents
         if os.path.exists(DEFAULT_AGENT_FILE):
-            import json
-
+            extension = os.path.splitext(DEFAULT_AGENT_FILE)[1]
             with open(DEFAULT_AGENT_FILE) as f:
-                self.agents = json.load(f)
+                if extension == ".json":
+                    self.agents = json.load(f)
+                elif extension == ".yaml":
+                    self.agents = yaml.safe_load(f)
+                else:
+                    raise ValueError(
+                        f"unknown extension {extension} for {DEFAULT_AGENT_FILE}"
+                    )
         else:
-            raise ValueError("no default_agents.json file found")
+            raise ValueError(f"no {DEFAULT_AGENT_FILE} file found")
 
         # if there is an EXTRA_AGENTS_FILE, load the agents from there
         if os.path.exists(EXTRA_AGENTS_FILE):
             extension = os.path.splitext(EXTRA_AGENTS_FILE)[1]
-            if extension == ".json":
-                import json
-
-                with open(EXTRA_AGENTS_FILE, encoding="UTF-8") as f:
+            with open(EXTRA_AGENTS_FILE, encoding="UTF-8") as f:
+                if extension == ".json":
                     extra_agents = json.load(f)
-            elif extension == ".yaml":
-                import yaml
-
-                with open(EXTRA_AGENTS_FILE, encoding="UTF-8") as f:
+                elif extension == ".yaml":
                     extra_agents = yaml.safe_load(f)
-            self.agents.update(extra_agents)
+                else:
+                    raise ValueError(
+                        f"unknown extension {extension} for {EXTRA_AGENTS_FILE}"
+                    )
+        else:
+            raise ValueError(f"no {EXTRA_AGENTS_FILE} file found")
+
+        self.agents.update(extra_agents)
 
         # Get an object to manage the AI models
         self.mm = ModelManager()
@@ -247,7 +257,11 @@ class ChatApp(App):
         def update_log(msg):
             self.debug_log += f"{msg}\n"
             if self.app.is_mounted(debug_pane):
-                debug_pane.update_entry("log")
+                asyncio.create_task(debug_pane.update_entry("log"))
+                # loop = asyncio.get_event_loop()
+                # task = asyncio.create_task(debug_pane.update_entry("log"))
+                # loop.run_until_complete(task)
+                # debug_pane.update_entry("log")
 
         def debug(self, msg, *args, **kwargs):
             app_debug_logger(msg, *args, **kwargs)

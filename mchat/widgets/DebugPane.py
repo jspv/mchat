@@ -1,9 +1,10 @@
-from textual.widgets import Static, Collapsible
+import asyncio
+from typing import Callable
+
+from rich.console import RenderableType
 from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
-from rich.console import RenderableType
-from typing import Callable
-import asyncio
+from textual.widgets import Collapsible, Static
 
 
 class DebugPane(VerticalScroll):
