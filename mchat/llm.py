@@ -491,7 +491,7 @@ class AutogenManager(object):
         # JSP - not sure if going to need this, stubbed out as part of the refactor
         # self.agent.clear_memory()
         if hasattr(self, "agent"):
-            self.agent._model_context = []
+            self.agent._model_context.clear()
 
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
@@ -615,11 +615,11 @@ class AutogenManager(object):
                 self._agents[agent]["extra_context"] = []
             for extra in self._agents[agent]["extra_context"]:
                 if extra[0] == "ai":
-                    self.agent._model_context.append(
+                    self.agent._model_context.add_message(
                         AssistantMessage(content=extra[1], source=agent)
                     )
                 elif extra[0] == "human":
-                    self.agent._model_context.append(
+                    self.agent._model_context.add_message(
                         UserMessage(content=extra[1], source="user")
                     )
                 elif extra[0] == "system":
