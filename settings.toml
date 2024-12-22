@@ -1,5 +1,7 @@
 # Agent configuration
 extra_agents_file = "agents.yaml"
+# To log the google searches
+google_search_log_file = "google_search.log"
 
 # Models
 # sections need to start with model. (with period) and no other periods in the section name
@@ -97,12 +99,10 @@ _cost_input = 0.0001
 chat_model = "gpt-4o"
 chat_temperature = 0.7
 agent = "default"
-
 image_model = "dall-e-3"
-
 embedding_model = "text-embedding-ada-002"
 
-# Using ConversationSummaryBufferMemory - specify model and max_tokens
+# for memory summary and history labels
 memory_model = "gpt-4o"
 # memory_model = "azure_openai_gpt_35"
 memory_model_temperature = 0.1

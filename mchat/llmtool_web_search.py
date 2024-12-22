@@ -11,10 +11,7 @@ from config import settings
 
 
 def google_search(
-    query: str,
-    num_results: int = 5,
-    max_chars: int = 500,
-    log_file: str = "google_search.log",
+    query: str, num_results: int = 5, max_chars: int = 1000, log_file: str | None = None
 ) -> List[Dict]:
     """
     Perform a Google Custom Search and fetch enriched results.
@@ -31,6 +28,9 @@ def google_search(
     # Fetch API key and Search Engine ID
     api_key = settings.get("google_api_key", None)
     search_engine_id = settings.get("google_search_engine_id", None)
+    log_file = (
+        settings.get("google_search_log_file", None) if log_file is None else log_file
+    )
 
     if not api_key or not search_engine_id:
         raise ValueError(
@@ -73,9 +73,10 @@ def google_search(
                     pdf_text = pdf_text[:max_chars].strip()
 
                     # Log PDF content
-                    with open(log_file, "a") as f:
-                        f.write(f"PDF URL: {page_url}\n")
-                        f.write(f"PDF Content: {pdf_text}\n\n")
+                    if log_file:
+                        with open(log_file, "a") as f:
+                            f.write(f"PDF URL: {page_url}\n")
+                            f.write(f"PDF Content: {pdf_text}\n\n")
 
                     return pdf_text
 
@@ -93,9 +94,10 @@ def google_search(
                 out = text[:max_chars].strip()
 
                 # Log webpage content
-                with open(log_file, "a") as f:
-                    f.write(f"URL: {page_url}\n")
-                    f.write(f"Content: {out}\n\n")
+                if log_file:
+                    with open(log_file, "a") as f:
+                        f.write(f"URL: {page_url}\n")
+                        f.write(f"Content: {out}\n\n")
 
                 return out
 
