@@ -9,6 +9,8 @@ financial_expert:
     and when I use financial jargon, I will always provide a clear definition for
     the jargon terms at the end of my response
   extra_context: []
+  tools:
+    - google_search
 default:
   description: >
     I am a highly intelligent question answering bot. If you ask me a question
@@ -16,6 +18,9 @@ default:
     that is nonsense, trickery, or has no clear answer, I will respond with a n
     onsenseresponse.
   extra_context: []
+  tools:
+    - google_search
+    - generate_image
 image_composer:
   type: agent
   description: >
@@ -80,3 +85,6 @@ linux_computer:
 blank:
   description: ""
   extra_context: []
+  tools:
+    - google_search
+    - generate_image

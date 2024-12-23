@@ -50,8 +50,22 @@ class ChatTurn(Widget):
 
     @on(MarkdownWidget.LinkClicked)
     def on_link_clicked(self, message: MarkdownWidget.LinkClicked) -> None:
-        self.log.debug(f"Link clicked: {message.href}")
-        open_new_tab(message.href)
+        """Open the clicked link in a new tab."""
+        # HACK Fixing the URL to be clickable - reported textual bug #5426
+        # https://github.com/Textualize/textual/issues/5426#issuecomment-2558582499
+        from urllib.parse import quote, urlparse
+
+        parsed_url = urlparse(message.href)
+        query = parsed_url.query
+        query_quoted = quote(query, safe="/=&")
+        new_http = (
+            f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{query_quoted}"
+        )
+
+        self.log.debug(f"Link clicked: \n{quote(message.href, safe=':/')}\n\n")
+        self.log.debug(f"Actual message: \n{self.message}\n\n]")
+        self.log.debug(f"Fixed? \n{new_http}\n\n")
+        open_new_tab(new_http)
 
     async def append_chunk(self, chunk: Any):
         self.message += chunk

@@ -1,7 +1,8 @@
 # Agent configuration
 extra_agents_file = "agents.yaml"
-# To log the google searches
+# Tool logfiles (optional)
 google_search_log_file = "google_search.log"
+generate_image_log_file = "generate_image.log"
 
 # Models
 # sections need to start with model. (with period) and no other periods in the section name

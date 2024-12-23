@@ -9,6 +9,7 @@ from typing import (
     Callable,
     Dict,
     Literal,
+    Optional,
 )
 
 from autogen_agentchat.agents import AssistantAgent
@@ -36,13 +37,12 @@ from autogen_ext.models.openai import (
     AzureOpenAIChatCompletionClient,
     OpenAIChatCompletionClient,
 )
-
-# No Dall-e support in langhchain OpenAI, so use the native
 from openai import OpenAI
 from pydantic.networks import HttpUrl
 
 from config import settings
 
+from .llmtool_generate_image import OpenAIImageAPIWrapper
 from .llmtool_web_search import google_search
 
 logging.basicConfig(filename="debug.log", filemode="w", level=logging.DEBUG)
@@ -344,20 +344,16 @@ class ModelManager:
             raise ValueError("Invalid model_type")
 
 
-class DallEAPIWrapper(object):
-    """Wrapper for OpenAI's DALL-E Image Generator.
-
-    https://platform.openai.com/docs/guides/images/generations?context=node
-
-    """
+class DallEAPIWrapper:
+    """Wrapper for OpenAI's DALL-E Image Generator."""
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
         num_images: int = 1,
         size: str = "1024x1024",
         separator: str = "\n",
-        model: str | None = "dall-e-3",
+        model: str | None = "dall-e-2",
         quality: str | None = "standard",
         **kwargs,
     ):
@@ -368,35 +364,42 @@ class DallEAPIWrapper(object):
         self.model = model
         self.quality = quality
 
+        # Set the API key for OpenAI
         self.client = OpenAI(api_key=self.api_key)
 
     def run(self, query: str) -> str:
         """Run query through OpenAI and parse result."""
-        response = self.client.images.generate(
-            prompt=query,
-            n=self.num_images,
-            size=self.size,
-            model=self.model,
-            quality=self.quality,
-        )
-        image_urls = self.separator.join([item.url for item in response.data])
-        return image_urls if image_urls else "No image was generated"
+        try:
+            response = self.client.images.generate(
+                n=self.num_images,
+                size=self.size,
+                model=self.model,
+                quality=self.quality,
+                response_format="url",
+            )
+            image_urls = self.separator.join([item["url"] for item in response["data"]])
+            return image_urls if image_urls else "No image was generated"
+        except Exception as e:
+            return f"Image Generation Error: {str(e)}"
 
     async def arun(self, query: str) -> str:
-        """Run query through OpenAI and parse result."""
-        loop = asyncio.get_running_loop()
-        # prepare keyword arguments for the run_in_executor call by partial
-        sync_func = partial(
-            self.client.images.generate,
-            prompt=query,
-            n=self.num_images,
-            size=self.size,
-            model=self.model,
-            quality=self.quality,
-        )
-        response = await loop.run_in_executor(None, sync_func)
-        image_urls = self.separator.join([item.url for item in response.data])
-        return image_urls if image_urls else "No image was generated"
+        """Run query through OpenAI and parse result asynchronously."""
+        # loop = asyncio.get_running_loop()
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.client.images.generate(
+                    prompt=query,
+                    n=self.num_images,
+                    size=self.size,
+                    model=self.model,
+                    quality=self.quality,
+                    response_format="url",
+                )
+            )
+            image_urls = self.separator.join([item.url for item in response.data])
+            return image_urls if image_urls else "No image was generated"
+        except Exception as e:
+            return f"Image Generatiom Error: {str(e)}"
 
 
 class AutogenManager(object):
@@ -432,6 +435,19 @@ class AutogenManager(object):
             description=(
                 "Search Google for information, returns results with a snippet and "
                 "body content"
+            ),
+        )
+        # need to give the API key to the OpenAIImageAPIWrapper
+        generate_image_tool = OpenAIImageAPIWrapper(
+            api_key=settings.get("openai_api_key")
+        )
+        self.tools["generate_image"] = FunctionTool(
+            generate_image_tool.generate_image,
+            description=(
+                "Generate an image from a prompt, it will return a url and a "
+                "revised_prompt if the tool decided to enhance the prompt. Do not "
+                "alter the url in any way, and provide information back to the user "
+                "if the prompt was changed"
             ),
         )
 
@@ -496,41 +512,6 @@ class AutogenManager(object):
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
 
-    # def old_update_memory(self, state: dict) -> None:
-    #     """Update the memory witt the contents of the messages"""
-
-    #     self.clear_memory()
-
-    #     # Parse the messages and add them to the memory, we're expecting them
-    #     # to be in the format of a list of strings, where each string is the
-    #     # tuple representation of a message object, content, and source
-
-    #     for objectname, content, source in messages:
-    #         if objectname.endswith("UserMessage'>"):
-    #             msg_type = UserMessage
-    #             msg_args = {"content": content, "source": source}
-    #         elif objectname.endswith("AssistantMessage'>"):
-    #             msg_type = AssistantMessage
-    #             msg_args = {"content": content, "source": source}
-    #         elif objectname.endswith("SystemMessage.>"):
-    #             msg_type = SystemMessage
-    #             msg_args = {"content": content, "source": source}
-    #         elif objectname.endswith("ToolCallMessage'>"):
-    #             msg_type = ToolCallMessage
-    #             msg_args = {"content": content, "source": source}
-    #         elif objectname.endswith("FunctionExecutionResult'>"):
-    #             msg_type = FunctionExecutionResultMessage
-    #             msg_args = {
-    #                 "content": [
-    #                     FunctionExecutionResult(call_id=source, content=content)
-    #                 ]
-    #             }
-    #         else:
-    #             raise ValueError(f"Unexpected message type: {objectname}")
-
-    #         # Add the appropriate object to the memory
-    #         self.agent._model_context.append(msg_type(**msg_args))
-
     def new_conversation(self, agent: dict, model_id, temperature: float = 0.0) -> None:
         """Intialize a new conversation with the given agent and model
 
@@ -573,10 +554,11 @@ class AutogenManager(object):
             if (
                 not self.mm.get_tool_support(model_id)
                 or not self.model_client.capabilities["function_calling"]
+                or "tools" not in agent_data
             ):
                 tools = None
             else:
-                tools = [self.tools["google_search"]]
+                tools = [self.tools[tool] for tool in agent_data["tools"]]
 
             # wrap the callback in a partial to pass the agent name
             callback = partial(self._message_callback, agent=agent)
