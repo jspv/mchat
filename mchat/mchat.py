@@ -433,7 +433,6 @@ class ChatApp(App):
             # start a new history session
             history = self.query_one(HistoryContainer)
             self.record = await history.new_session()
-            self.ag.clear_memory()
             self.set_agent(self.default_agent)
             self.llm_model_name = self.mm.default_chat_model
             self.llm_temperature = self.mm.default_chat_temperature
@@ -849,6 +848,7 @@ class ChatApp(App):
         if len(self.record.turns) == 0:
             self._current_question = ""
             self.ag.clear_memory()
+            self.set_agent(self.default_agent)
         else:
             # load the parameters from the last turn and reinitialize
             self.current_agent = self.record.turns[-1].agent

@@ -20,6 +20,7 @@ from autogen_agentchat.conditions import (
     TextMentionTermination,
 )
 from autogen_agentchat.messages import (
+    MultiModalMessage,
     TextMessage,
     ToolCallExecutionEvent,
     ToolCallRequestEvent,
@@ -33,6 +34,7 @@ from autogen_core.models import (
     UserMessage,
 )
 from autogen_core.tools import FunctionTool
+from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 from autogen_ext.models.openai import (
     AzureOpenAIChatCompletionClient,
     OpenAIChatCompletionClient,
@@ -504,15 +506,13 @@ class AutogenManager(object):
 
     def clear_memory(self) -> None:
         """Clear the memory"""
-        # JSP - not sure if going to need this, stubbed out as part of the refactor
-        # self.agent.clear_memory()
-        if hasattr(self, "agent"):
+        if hasattr(self, "agent") and hasattr(self.agent, "_model_context:"):
             self.agent._model_context.clear()
 
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
 
-    def new_conversation(self, agent: dict, model_id, temperature: float = 0.0) -> None:
+    def new_conversation(self, agent: str, model_id, temperature: float = 0.0) -> None:
         """Intialize a new conversation with the given agent and model
 
         Parameters
@@ -548,7 +548,11 @@ class AutogenManager(object):
             self.model_client = self.mm.open_model(model_id)
             self._model_id = model_id
 
-            self._prompt = self._agents[agent]["description"]
+            self._prompt = (
+                self._agents[agent]["description"]
+                if "description" in self._agents[agent]
+                else ""
+            )
 
             # don't use tools if the model does't support them
             if (
@@ -563,7 +567,7 @@ class AutogenManager(object):
             # wrap the callback in a partial to pass the agent name
             callback = partial(self._message_callback, agent=agent)
 
-            # Stream if supported and enabled by  _stream_tokens
+            # Stream if supported by the model and enabled by  _stream_tokens
             if self.mm.get_streaming_support(model_id) and self._stream_tokens:
                 callback = callback
                 self.log(f"token streaming for {model_id} enabled")
@@ -575,24 +579,34 @@ class AutogenManager(object):
 
             # Don't use system messages if not supported
             if self.mm.get_system_prompt_support(model_id):
-                # system_message = (
-                #     f"{self._prompt}\nAfter each response, type 'TERMINATE' to "
-                #     "end the conversation"
-                # )
                 system_message = self._prompt
             else:
                 system_message = None
 
-            self.agent = AssistantAgent(
-                name=agent,
-                model_client=self.model_client,
-                tools=tools,
-                system_message=system_message,
-                token_callback=callback,
-                reflect_on_tool_use=True,
-            )
+            # build the agent
+            if "type" in agent_data and agent_data["type"] == "autogen-agent":
+                if agent_data["name"] == "websurfer":
+                    self.agent = MultimodalWebSurfer(
+                        model_client=self.model_client,
+                        name=agent,
+                        # token_callback=callback,
+                    )
+                    self.log(f"token streaming agent:{agent} disabled or not supported")
+                    self._currently_streaming = False
 
-            # Load Extra system messages
+                else:
+                    raise ValueError(f"Unknown autogen agent type for agent:{agent}")
+            else:
+                self.agent = AssistantAgent(
+                    name=agent,
+                    model_client=self.model_client,
+                    tools=tools,
+                    system_message=system_message,
+                    token_callback=callback,
+                    reflect_on_tool_use=True,
+                )
+
+            # Load Extra system messages if they exist
             if "extra_context" not in self._agents[agent]:
                 self._agents[agent]["extra_context"] = []
             for extra in self._agents[agent]["extra_context"]:
@@ -609,9 +623,11 @@ class AutogenManager(object):
                 else:
                     raise ValueError(f"Unknown extra context type {extra[0]}")
 
-            termination_1 = MaxMessageTermination(max_messages=10)
-            self.terminator = ExternalTermination()
-            termination = termination_1 | self.terminator
+            # Build the termination conditions
+            max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 10
+            max_message_terminator = MaxMessageTermination(max_messages=max_rounds)
+            self.terminator = ExternalTermination()  # for custom terminations
+            termination = max_message_terminator | self.terminator
             self.agent_team = RoundRobinGroupChat(
                 [self.agent], termination_condition=termination
             )
@@ -718,6 +734,12 @@ class AutogenManager(object):
                     else:
                         continue
 
+                if isinstance(response, MultiModalMessage):
+                    await self._message_callback(
+                        f"MM:{response.content}", agent=response.source, complete=True
+                    )
+                    continue
+
                 if isinstance(response, ToolCallRequestEvent):
                     tool_message = "calling tool\n"
                     for tool in response.content:
@@ -740,54 +762,61 @@ class AutogenManager(object):
                 await self._message_callback(repr(response), flush=True)
             return response
 
-        async def team_run_stream(task: str, oneshot: bool = False) -> TaskResult:
-            """Run the team and handle the responses
+        # Testing refactor - remove this if working
+        # async def team_run_stream(task: str, oneshot: bool = False) -> TaskResult:
+        #     """Run the team and handle the responses
 
-            Parameters
-            ----------
-            task : str
-                Task for the team to run
-            oneshot : bool, optional
-                Terminate after first response (single agent teams), by default False
-            """
-            # Generate a cancelation token
-            self._cancelation_token = CancellationToken()
-            response: TaskResult = await field_responses(
-                self.agent_team.run_stream,
-                oneshot=oneshot,
-                task=message,
-                cancellation_token=self._cancelation_token,
-            )
-            return response
+        #     Parameters
+        #     ----------
+        #     task : str
+        #         Task for the team to run
+        #     oneshot : bool, optional
+        #         Terminate after first response (single agent teams), by default False
+        #     """
+        #     # Generate a cancelation token
+        #     self._cancelation_token = CancellationToken()
+        #     response: TaskResult = await field_responses(
+        #         self.agent_team.run_stream,
+        #         oneshot=oneshot,
+        #         task=message,
+        #         cancellation_token=self._cancelation_token,
+        #     )
+        #     return response
+
+        self._cancelation_token = CancellationToken()
+        oneshot = True if len(self.agent_team._participants) == 1 else False
+        result: TaskResult = await field_responses(
+            self.agent_team.run_stream,
+            oneshot=oneshot,
+            task=message,
+            cancellation_token=self._cancelation_token,
+        )
+
+        # if there is only one agent in the team, just run the agent
+        # if len(self.agent_team._participants) == 1:
+        #     result = await team_run_stream(task=message, oneshot=True)
+        # else:
+        #     result = await team_run_stream(task=message)
+        self.log(f"result: {result.stop_reason}")
 
         # Not using this, keeping it here in case I want to revisit
-        async def assistant_run() -> None:
-            response = await self.agent.on_messages(
-                [TextMessage(content=message, source="user")],
-                cancellation_token=CancellationToken(),
-            )
-            return response
+        # async def assistant_run() -> None:
+        #     response = await self.agent.on_messages(
+        #         [TextMessage(content=message, source="user")],
+        #         cancellation_token=CancellationToken(),
+        #     )
+        #     return response
 
         # Not using this as it was cumbersome and cleaner to support single-agent
         # teams, leaving it here in case I want to revisit.
-        async def agent_run_stream(task: str) -> None:
-            # Generate a cancelation token
-            self._cancelation_token = CancellationToken()
-            await field_responses(
-                self.agent.on_messages_stream,
-                messages=[TextMessage(content=task, source="user")],
-                cancellation_token=self._cancelation_token,
-            )
-
-        # if there is only one agent in the team, just run the agent
-        if len(self.agent_team._participants) == 1:
-            result = await team_run_stream(task=message, oneshot=True)
-        else:
-            result = await team_run_stream(task=message)
-
-        # result = await team_run_stream(task=message)
-        # self.logger(f"result: {result.stop_reason}")
-        self.log(f"result: {result.stop_reason}")
+        # async def agent_run_stream(task: str) -> None:
+        #     # Generate a cancelation token
+        #     self._cancelation_token = CancellationToken()
+        #     await field_responses(
+        #         self.agent.on_messages_stream,
+        #         messages=[TextMessage(content=task, source="user")],
+        #         cancellation_token=self._cancelation_token,
+        #     )
 
 
 class LLMTools:
