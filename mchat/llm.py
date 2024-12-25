@@ -44,8 +44,9 @@ from pydantic.networks import HttpUrl
 
 from config import settings
 
-from .llmtool_generate_image import OpenAIImageAPIWrapper
-from .llmtool_web_search import google_search
+from .tools._generate_image import OpenAIImageAPIWrapper
+from .tools._up_to_date import get_location, today
+from .tools._web_search import google_search
 
 logging.basicConfig(filename="debug.log", filemode="w", level=logging.DEBUG)
 requests_log = logging.getLogger("requests.packages.urllib3")
@@ -435,9 +436,20 @@ class AutogenManager(object):
         self.tools["google_search"] = FunctionTool(
             google_search,
             description=(
-                "Search Google for information, returns results with a snippet and "
-                "body content"
+                "Call this to search the Internet for information, "
+                "returns links with a snippet of body content"
             ),
+        )
+        self.tools["get_location"] = FunctionTool(
+            get_location,
+            description=(
+                "Call this to get the city, country, IP address, postal code, "
+                "timezone, latitude and longitude of the current IP address being used"
+            ),
+        )
+        self.tools["today"] = FunctionTool(
+            today,
+            description=("Call this to get the current date, time, and timezone"),
         )
         # need to give the API key to the OpenAIImageAPIWrapper
         generate_image_tool = OpenAIImageAPIWrapper(

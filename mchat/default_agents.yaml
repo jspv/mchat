@@ -21,6 +21,8 @@ default:
   tools:
     - google_search
     - generate_image
+    - today
+    - get_location
 image_composer:
   type: agent
   description: >
@@ -88,3 +90,5 @@ blank:
   tools:
     - google_search
     - generate_image
+    - today
+    - get_location
