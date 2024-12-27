@@ -26,7 +26,7 @@ from autogen_agentchat.messages import (
     ToolCallRequestEvent,
     ToolCallSummaryMessage,
 )
-from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_agentchat.teams import RoundRobinGroupChat, SelectorGroupChat
 from autogen_core import CancellationToken
 from autogen_core.models import (
     AssistantMessage,
@@ -551,11 +551,10 @@ class AutogenManager(object):
         agent_data = self._agents[agent]
 
         if "type" in agent_data and agent_data["type"] == "team":
-            if agent_data["team_type"] == "round_robin":
-                self.agent_team = self._create_team_round_robin(agent_data)
-                self._prompt = agent_data["description"]
-                self.agent = self.agent_team._participants[0]
-                self._currently_streaming = False
+            self.agent_team = self._create_team(agent_data["team_type"], agent_data)
+            self._prompt = agent_data["description"]
+            self.agent = self.agent_team._participants[0]
+            self._currently_streaming = False
         else:
             self.model_client = self.mm.open_model(model_id)
             self._model_id = model_id
@@ -644,24 +643,24 @@ class AutogenManager(object):
                 [self.agent], termination_condition=termination
             )
 
-    def _create_team_round_robin(self, agent_data: dict) -> RoundRobinGroupChat:
-        """Create a team of agents that will operate in a round-robin fashion
+    def _create_team(
+        self, team_type: str, agent_data: dict
+    ) -> RoundRobinGroupChat | SelectorGroupChat:
+        """Create a team of agents
 
         Parameters
         ----------
+        team_type : str
+            type of team to create
         agent_data : dict
             description of the agent team
-
-        Returns
-        -------
-        RoundRobinGroupChat
-            autogen RoundRobinGroupChat object
         """
 
         # agent_data needs to be a team
         if "type" not in agent_data or agent_data["type"] != "team":
-            raise ValueError("agent_data for round_robin team must be a team")
+            raise ValueError("agent_data 'type' for team must be 'team'")
 
+        # build the agents
         agents = []
         for agent in agent_data["agents"]:
             subagent_data = self._agents[agent]
@@ -669,37 +668,197 @@ class AutogenManager(object):
                 model_client = self.mm.open_model(subagent_data["model"])
             else:
                 model_client = self.mm.open_model(self.mm.default_chat_model)
+            if "type" in subagent_data and subagent_data["type"] == "autogen-agent":
+                if subagent_data["name"] == "websurfer":
+                    agents.append(
+                        MultimodalWebSurfer(
+                            model_client=model_client,
+                            name=agent,
+                            # token_callback=callback,
+                        )
+                    )
+                    # self.log(f"token streaming agent:{agent} disabled or not supported")
+                    # self._currently_streaming = False
 
-            # don't use tools if the model does't support them
-            if (
-                not self.mm.get_tool_support(subagent_data["model"])
-                or not model_client.capabilities["function_calling"]
-                or "tools" not in subagent_data
-            ):
-                tools = None
+                else:
+                    raise ValueError(f"Unknown autogen agent type for agent:{agent}")
             else:
-                # load the tools
-                tools = []
-                for tool in subagent_data["tools"]:
-                    tools.append(self.tools[tool])
+                # don't use tools if the model does't support them
+                if (
+                    not self.mm.get_tool_support(subagent_data["model"])
+                    or not model_client.capabilities["function_calling"]
+                    or "tools" not in subagent_data
+                ):
+                    tools = None
+                else:
+                    # load the tools
+                    tools = []
+                    for tool in subagent_data["tools"]:
+                        tools.append(self.tools[tool])
 
-            agents.append(
-                AssistantAgent(
-                    name=agent,
-                    model_client=model_client,
-                    tools=tools,
-                    system_message=subagent_data["description"],
-                    reflect_on_tool_use=True,
+                agents.append(
+                    AssistantAgent(
+                        name=agent,
+                        model_client=model_client,
+                        tools=tools,
+                        system_message=subagent_data["prompt"],
+                        description=subagent_data["description"],
+                        reflect_on_tool_use=True,
+                    )
                 )
-            )
 
+        # constuct the team
         max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
 
         text_termination = TextMentionTermination(agent_data["termination_message"])
         max_message_termination = MaxMessageTermination(max_rounds)
         termination = text_termination | max_message_termination
-        team = RoundRobinGroupChat(agents, termination_condition=termination)
-        return team
+
+        if team_type == "round_robin":
+            return RoundRobinGroupChat(agents, termination_condition=termination)
+        elif team_type == "selector":
+            if "team_model" not in agent_data:
+                raise ValueError("Error in team Selector team must have a team_model")
+            team_model = self.mm.open_model(agent_data["team_model"])
+            allow_repeated_speaker = agent_data.get("allow_repeated_speaker", False)
+
+            if "selector_prompt" in agent_data:
+                return SelectorGroupChat(
+                    agents,
+                    model_client=team_model,
+                    selector_prompt=agent_data["selector_prompt"],
+                    termination_condition=termination,
+                    allow_repeated_speaker=allow_repeated_speaker,
+                )
+            else:
+                return SelectorGroupChat(
+                    agents,
+                    model_client=team_model,
+                    allow_repeated_speaker=allow_repeated_speaker,
+                    termination_condition=termination,
+                )
+        else:
+            raise ValueError(f"Unknown team type {team_type}")
+
+    # def _create_team_round_robin(self, agent_data: dict) -> RoundRobinGroupChat:
+    #     """Create a team of agents that will operate in a round-robin fashion
+
+    #     Parameters
+    #     ----------
+    #     agent_data : dict
+    #         description of the agent team
+
+    #     Returns
+    #     -------
+    #     RoundRobinGroupChat
+    #         autogen RoundRobinGroupChat object
+    #     """
+
+    #     # agent_data needs to be a team
+    #     if "type" not in agent_data or agent_data["type"] != "team":
+    #         raise ValueError("agent_data for round_robin team must be a team")
+
+    #     agents = []
+    #     for agent in agent_data["agents"]:
+    #         subagent_data = self._agents[agent]
+    #         if "model" in subagent_data:
+    #             model_client = self.mm.open_model(subagent_data["model"])
+    #         else:
+    #             model_client = self.mm.open_model(self.mm.default_chat_model)
+
+    #         # don't use tools if the model does't support them
+    #         if (
+    #             not self.mm.get_tool_support(subagent_data["model"])
+    #             or not model_client.capabilities["function_calling"]
+    #             or "tools" not in subagent_data
+    #         ):
+    #             tools = None
+    #         else:
+    #             # load the tools
+    #             tools = []
+    #             for tool in subagent_data["tools"]:
+    #                 tools.append(self.tools[tool])
+
+    #         agents.append(
+    #             AssistantAgent(
+    #                 name=agent,
+    #                 model_client=model_client,
+    #                 tools=tools,
+    #                 system_message=subagent_data["description"],
+    #                 reflect_on_tool_use=True,
+    #             )
+    #         )
+
+    #     max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
+
+    #     text_termination = TextMentionTermination(agent_data["termination_message"])
+    #     max_message_termination = MaxMessageTermination(max_rounds)
+    #     termination = text_termination | max_message_termination
+    #     team = RoundRobinGroupChat(agents, termination_condition=termination)
+    #     return team
+
+    # def _create_team_selector(self, agent_data: dict) -> SelectorGroupChat:
+    #     """Create a team of agents that will operate in a selector fashion
+
+    #     Parameters
+    #     ----------
+    #     agent_data : dict
+    #         description of the agent team
+
+    #     Returns
+    #     -------
+    #     SelectorGroupChat
+    #         autogen SelectorGroupChat object
+    #     """
+
+    #     # agent_data needs to be a team
+    #     if "type" not in agent_data or agent_data["type"] != "team":
+    #         raise ValueError("agent_data for selector team must be a team")
+
+    #     if "team_model" not in agent_data:
+    #         raise ValueError("Error in team Selector team must have a team_model")
+    #     team_model = self.mm.open_model(agent_data["team_model"])
+
+    #     agents = []
+    #     for agent in agent_data["agents"]:
+    #         subagent_data = self._agents[agent]
+    #         if "model" in subagent_data:
+    #             model_client = self.mm.open_model(subagent_data["model"])
+    #         else:
+    #             model_client = self.mm.open_model(self.mm.default_chat_model)
+
+    #         # don't use tools if the model does't support them
+    #         if (
+    #             not self.mm.get_tool_support(subagent_data["model"])
+    #             or not model_client.capabilities["function_calling"]
+    #             or "tools" not in subagent_data
+    #         ):
+    #             tools = None
+    #         else:
+    #             # load the tools
+    #             tools = []
+    #             for tool in subagent_data["tools"]:
+    #                 tools.append(self.tools[tool])
+
+    #         agents.append(
+    #             AssistantAgent(
+    #                 name=agent,
+    #                 model_client=model_client,
+    #                 tools=tools,
+    #                 system_message=subagent_data["description"],
+    #                 reflect_on_tool_use=True,
+    #             )
+    #         )
+
+    #     max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
+
+    #     text_termination = TextMentionTermination(agent_data["termination_message"])
+    #     max_message_termination = MaxMessageTermination(max_rounds)
+    #     termination = text_termination | max_message_termination
+    #     team = SelectorGroupChat(
+    #         agents, model_client=team_model, termination_condition=termination
+    #     )
+    #     return team
 
     async def ask(self, message: str) -> TaskResult:
         async def field_responses(
