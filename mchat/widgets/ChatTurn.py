@@ -3,7 +3,7 @@ from typing import Any
 from webbrowser import open_new_tab
 
 from rich.markdown import Markdown
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.geometry import Size
@@ -11,6 +11,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Markdown as MarkdownWidget
 from textual.widgets import Static
+from textual.widgets._markdown import MarkdownFence
 
 """
 Design:
@@ -41,8 +42,14 @@ class ChatTurn(Widget):
                 self.md.border_title = self.title
             yield self.md
 
-    def on_click(self) -> None:
-        self.post_message(ChatTurn.ChatTurnClicked(self))
+    def on_click(self, event: events.Click) -> None:
+        widget = event.widget
+        if widget is None:
+            return
+        local_text = (
+            widget.parent.code if isinstance(widget.parent, MarkdownFence) else None
+        )
+        self.post_message(ChatTurn.ChatTurnClicked(widget=self, local_text=local_text))
 
     @property
     def markdown(self):
@@ -75,46 +82,47 @@ class ChatTurn(Widget):
     @dataclass
     class ChatTurnClicked(Message):
         widget: Widget
+        local_text: str | None
         """ The widget that was clicked."""
 
 
-class OldChatTurn(Widget, can_focus=True):
-    def __init__(self, message="", role=None, **kwargs) -> None:
-        self.message = message
-        self.role = role
-        super().__init__(classes=role, **kwargs)
+# class OldChatTurn(Widget, can_focus=True):
+#     def __init__(self, message="", role=None, **kwargs) -> None:
+#         self.message = message
+#         self.role = role
+#         super().__init__(classes=role, **kwargs)
 
-    def compose(self) -> ComposeResult:
-        with Vertical(classes=self.role, id="chatturn-container"):
-            self.md = Static(classes=self.role, id="chatturn-markdown")
-            yield self.md
+#     def compose(self) -> ComposeResult:
+#         with Vertical(classes=self.role, id="chatturn-container"):
+#             self.md = Static(classes=self.role, id="chatturn-markdown")
+#             yield self.md
 
-    def on_mount(self) -> None:
-        pass
+#     def on_mount(self) -> None:
+#         pass
 
-    def on_click(self) -> None:
-        self.log.debug("Clicked on ChatTurn")
-        self.post_message(ChatTurn.ChatTurnClicked(self))
+#     def on_click(self, event: events.Click) -> None:
+#         self.log.debug("Clicked on ChatTurn")
+#         self.post_message(ChatTurn.ChatTurnClicked(self))
 
-    def get_content_width(self, container: Size, viewport: Size) -> int:
-        # Naive approach. Can sometimes look strange, but works well enough.
-        return min(len(self.message), container.width)
+#     def get_content_width(self, container: Size, viewport: Size) -> int:
+#         # Naive approach. Can sometimes look strange, but works well enough.
+#         return min(len(self.message), container.width)
 
-    @property
-    def markdown(self) -> Markdown:
-        return Markdown(self.message)
+#     @property
+#     def markdown(self) -> Markdown:
+#         return Markdown(self.message)
 
-    # def render(self) -> RenderableType:
-    #     self.md.update(self.markdown)
-    #     # return self.markdown
+#     # def render(self) -> RenderableType:
+#     #     self.md.update(self.markdown)
+#     #     # return self.markdown
 
-    async def append_chunk(self, chunk: Any):
-        self.message += chunk
-        self.md.update(self.markdown)
-        # self.refresh(layout=True)
+#     async def append_chunk(self, chunk: Any):
+#         self.message += chunk
+#         self.md.update(self.markdown)
+#         # self.refresh(layout=True)
 
-    # textual message to be sent when clicked
-    @dataclass
-    class ChatTurnClicked(Message):
-        widget: Widget
-        """ The widget that was clicked."""
+#     # textual message to be sent when clicked
+#     @dataclass
+#     class ChatTurnClicked(Message):
+#         widget: Widget
+#         """ The widget that was clicked."""

@@ -13,6 +13,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import Reactive
 from textual.widgets import Footer, Header
+from textual.widgets._markdown import MarkdownFence
 from textual.worker import Worker
 from textual_dominfo import DOMInfo
 
@@ -278,8 +279,12 @@ class ChatApp(App):
     def click_chat_turn(self, event: events) -> None:
         chatturn = event.widget
 
-        # copy contents of chatbox to clipboard
-        pyperclip.copy(chatturn.message)
+        if event.local_text:
+            # copy contents of chatbox to clipboard
+            pyperclip.copy(event.local_text)
+        else:
+            # copy contents of chatbox to clipboard
+            pyperclip.copy(chatturn.message)
 
     @on(PromptInput.Submitted)
     def submit_question(self, event: events) -> None:
