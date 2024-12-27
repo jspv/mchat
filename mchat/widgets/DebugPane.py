@@ -56,5 +56,5 @@ class DebugPane(VerticalScroll):
     async def update_status(self) -> None:
         """force debug pane to update all values"""
 
-        for key, (keymsg, value) in self._entries.items():
+        for key, (keymsg, value) in self._entries.items():  # noqa: B007
             await self.update_entry(key, value)

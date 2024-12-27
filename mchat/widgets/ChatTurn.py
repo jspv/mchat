@@ -2,15 +2,12 @@ from dataclasses import dataclass
 from typing import Any
 from webbrowser import open_new_tab
 
-from rich.markdown import Markdown
 from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.geometry import Size
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Markdown as MarkdownWidget
-from textual.widgets import Static
 from textual.widgets._markdown import MarkdownFence
 
 """
@@ -83,7 +80,6 @@ class ChatTurn(Widget):
     class ChatTurnClicked(Message):
         widget: Widget
         local_text: str | None
-        """ The widget that was clicked."""
 
 
 # class OldChatTurn(Widget, can_focus=True):

@@ -13,7 +13,6 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import Reactive
 from textual.widgets import Footer, Header
-from textual.widgets._markdown import MarkdownFence
 from textual.worker import Worker
 from textual_dominfo import DOMInfo
 

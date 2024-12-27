@@ -677,7 +677,9 @@ class AutogenManager(object):
                             # token_callback=callback,
                         )
                     )
-                    # self.log(f"token streaming agent:{agent} disabled or not supported")
+                    # self.log(
+                    #     f"token streaming agent:{agent} disabled or not supported"
+                    # )
                     # self._currently_streaming = False
 
                 else:

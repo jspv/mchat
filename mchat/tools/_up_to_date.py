@@ -16,10 +16,10 @@ def get_location():
     data = response.json()
 
     # Extracting details from the JSON response
-    city = data.get("city")
-    region = data.get("region")
-    country = data.get("country")
-    loc = data.get("loc", "0,0").split(",")
+    # city = data.get("city")
+    # region = data.get("region")
+    # country = data.get("country")
+    # loc = data.get("loc", "0,0").split(",")
     return data
 
     # # Print the location details
