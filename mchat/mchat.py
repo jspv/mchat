@@ -24,6 +24,7 @@ from mchat.widgets.Dialog import Dialog
 from mchat.widgets.FilePicker import FilePickerDialog
 from mchat.widgets.History import HistoryContainer
 from mchat.widgets.PromptInput import PromptInput
+from mchat.widgets.StatusBar import StatusBar
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
@@ -205,11 +206,21 @@ class ChatApp(App):
                 self.chat_container = VerticalScroll(id="chat-container")
                 yield self.chat_container
                 yield PromptInput()
+                yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "mchat - Multi-Model Chatbot"
 
+        # load the agents and select the default
+        self.query_one(StatusBar).load_agents(
+            [
+                (agent, agent)
+                for agent, data in self.agents.items()
+                if data.get("chooseable", True)
+            ],
+            value=self.default_agent,
+        )
         # set focus to the input box
         input = self.query_one(PromptInput)
         input.focus()
@@ -298,6 +309,22 @@ class ChatApp(App):
 
         # ask_question is a work function, so it will be run in a separate thread
         self.ask_question(event.value)
+
+    @on(StatusBar.AgentChangedMessage)
+    def change_agent(self, message: StatusBar.AgentChangedMessage) -> None:
+        agent = message.agent
+        if not agent:
+            return
+        self.post_message(
+            self.AddToChatMessage(
+                role="assistant",
+                message=f"Setting agent to '{agent}'",
+                agent_name="meta",
+            )
+        )
+        self._current_question = ""
+        self.set_agent(agent=agent)
+        self.post_message(self.EndChatTurn(role="meta"))
 
     def on_key(self, event: events.Key) -> None:
         """Write Key events to log."""
