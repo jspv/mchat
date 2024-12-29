@@ -54,6 +54,7 @@ class StatusBar(Widget):
 
     def disable_stream_selector(self) -> None:
         """Disable the streaming selector"""
+        self.streaming_selector.value = "Off"
         self.streaming_selector.disabled = True
 
     def enable_stream_selector(self) -> None:

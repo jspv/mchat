@@ -493,28 +493,58 @@ class AutogenManager(object):
         # return self.agent.prompt
         return self._prompt
 
+    @property
+    def description(self) -> str:
+        """Returns the current prompt"""
+        # return self.agent.prompt
+        return self._description
+
     async def get_memory(self) -> str:
         """Returns the current memory in a recoverable text format"""
         # save_state is async, so we need to await it
         return await self.agent.save_state()
 
     @property
-    def stream_tokens(self) -> bool:
+    def stream_tokens(self) -> bool | None:
         """Are we currently streaming tokens if they are supported"""
         return self._stream_tokens
 
     @stream_tokens.setter
     def stream_tokens(self, value: bool) -> None:
         """enable or disable token streaming"""
-        self._stream_tokens = value
+
+        if not isinstance(value, bool):
+            raise ValueError("stream_tokens must be a boolean")
+
+        # If currently disabled by logic, don't allow it to be enabled
+        if self._stream_tokens is None:
+            self.log(
+                f"token streaming disabled, setting stream_tokens to {value} ignored"
+            )
+            return
+
+        # If the model doesn't support, set to None
+        if not self.mm.get_streaming_support(self._model_id):
+            self._stream_tokens = None
+            self.log(f"token streaming for {self._model_id} not supported")
+            # self._currently_streaming = None
+            return
+
         # if there is an agent, set token callback in the agent if the value is True
-        if hasattr(self, "agent") and self.mm.get_streaming_support(self._model_id):
+        if hasattr(self, "agent"):
             if value:
                 self.agent._token_callback = self._message_callback
-                self._currently_streaming = True
+                self._stream_tokens = True
+                self.log(f"token streaming for agent and {self._model_id} enabled")
+                # self._currently_streaming = True
             else:
                 self.agent._token_callback = None
-                self._currently_streaming = False
+                self._stream_tokens = False
+                self.log(f"token streaming for agent and {self._model_id} disabled")
+                # self._currently_streaming = False
+        else:
+            self._stream_tokens = value
+            self.log(f"token streaming for {self._model_id} set to disabled")
 
     def clear_memory(self) -> None:
         """Clear the memory"""
@@ -524,7 +554,9 @@ class AutogenManager(object):
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
 
-    def new_conversation(self, agent: str, model_id, temperature: float = 0.0) -> None:
+    def new_conversation(
+        self, agent: str, model_id, temperature: float = 0.0, stream_tokens: bool = True
+    ) -> None:
         """Intialize a new conversation with the given agent and model
 
         Parameters
@@ -550,20 +582,29 @@ class AutogenManager(object):
 
         agent_data = self._agents[agent]
 
+        self._prompt = (
+            self._agents[agent]["prompt"] if "prompt" in self._agents[agent] else ""
+        )
+
+        self._description = (
+            self._agents[agent]["description"]
+            if "description" in self._agents[agent]
+            else ""
+        )
+
         if "type" in agent_data and agent_data["type"] == "team":
+            # Team-base Agents
             self.agent_team = self._create_team(agent_data["team_type"], agent_data)
-            self._prompt = agent_data["description"]
             self.agent = self.agent_team._participants[0]
-            self._currently_streaming = False
+
+            # currently not streaming tokens for team agents
+            self._stream_tokens = None
+            self.log("token streaming for team-based agents currently disabled")
+
         else:
+            # Solo Agent
             self.model_client = self.mm.open_model(model_id)
             self._model_id = model_id
-
-            self._prompt = (
-                self._agents[agent]["description"]
-                if "description" in self._agents[agent]
-                else ""
-            )
 
             # don't use tools if the model does't support them
             if (
@@ -578,15 +619,11 @@ class AutogenManager(object):
             # wrap the callback in a partial to pass the agent name
             callback = partial(self._message_callback, agent=agent)
 
-            # Stream if supported by the model and enabled by  _stream_tokens
-            if self.mm.get_streaming_support(model_id) and self._stream_tokens:
-                callback = callback
-                self.log(f"token streaming for {model_id} enabled")
-                self._currently_streaming = True
-            else:
-                callback = None
-                self.log(f"token streaming for {model_id} disabled or not supported")
-                self._currently_streaming = False
+            # Need to resent and 'enable' setting of stream_tokens by setting to
+            # non-None value stream tokens setter then will check if the model
+            # supports streaming and will eiither set it or diasble as needed
+            self._stream_tokens = stream_tokens
+            self.stream_tokens = stream_tokens
 
             # Don't use system messages if not supported
             if self.mm.get_system_prompt_support(model_id):
@@ -602,8 +639,9 @@ class AutogenManager(object):
                         name=agent,
                         # token_callback=callback,
                     )
+                    # not streaming autogen agents right now
                     self.log(f"token streaming agent:{agent} disabled or not supported")
-                    self._currently_streaming = False
+                    self._stream_tokens = None
 
                 else:
                     raise ValueError(f"Unknown autogen agent type for agent:{agent}")
@@ -893,7 +931,7 @@ class AutogenManager(object):
                         continue
                     # if we're streaming no need to show TextMessage, we got the
                     # tokens already
-                    if not self._currently_streaming:
+                    if not self._stream_tokens:
                         await self._message_callback(
                             response.content, agent=response.source, complete=True
                         )

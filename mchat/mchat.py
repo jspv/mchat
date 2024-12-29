@@ -86,7 +86,7 @@ class ChatApp(App):
     _show_debug = Reactive(False)
 
     # placeholder for the current question
-    _current_question = Reactive("")
+    _current_question = ""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -157,9 +157,7 @@ class ChatApp(App):
                 self.image_model_name, model_type="image"
             )
 
-        # Initialize the conversation
-        self.default_agent = getattr(settings, "defaults.agent", "default")
-        self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
+        # The conversation is initialized in the on_mount method
 
     async def _reinitialize_llm_model(self, model_context: dict | None = None):
         """re-initialize the language model."""
@@ -212,6 +210,10 @@ class ChatApp(App):
     def on_mount(self) -> None:
         self.title = "mchat - Multi-Model Chatbot"
 
+        # Initialize the conversation
+        self.default_agent = getattr(settings, "defaults.agent", "default")
+        self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
+
         # load the agents and select the default
         self.query_one(StatusBar).load_agents(
             [
@@ -221,6 +223,7 @@ class ChatApp(App):
             ],
             value=self.default_agent,
         )
+
         # set focus to the input box
         input = self.query_one(PromptInput)
         input.focus()
@@ -244,6 +247,13 @@ class ChatApp(App):
         await debug_pane.add_entry(
             "question", "Question", lambda: self._current_question, collapsed=True
         )
+        await debug_pane.add_entry(
+            "description",
+            "Description",
+            lambda: self.app.ag.description,
+            collapsed=True,
+        )
+
         await debug_pane.add_entry(
             "prompt", "Prompt", lambda: self.app.ag.prompt, collapsed=True
         )
@@ -311,10 +321,28 @@ class ChatApp(App):
         self.ask_question(event.value)
 
     @on(StatusBar.AgentChangedMessage)
-    def change_agent(self, message: StatusBar.AgentChangedMessage) -> None:
+    def change_agent_handler(self, message: StatusBar.AgentChangedMessage) -> None:
         agent = message.agent
+        if agent != self.current_agent:
+            self.set_agent(agent)
+
+    def set_agent(
+        self, agent: str, model_name: str = "", temperature: float = 0.0
+    ) -> None:
+        """Change the agent"""
         if not agent:
             return
+        self.current_agent = agent
+        if agent not in self.agents:
+            raise ValueError(f"agent '{agent}' not found")
+
+        if model_name == "":
+            model_name = self.llm_model_name
+
+        self.conversation = self.ag.new_conversation(
+            agent=agent, model_id=model_name, temperature=temperature
+        )
+
         self.post_message(
             self.AddToChatMessage(
                 role="assistant",
@@ -323,8 +351,20 @@ class ChatApp(App):
             )
         )
         self._current_question = ""
-        self.set_agent(agent=agent)
         self.post_message(self.EndChatTurn(role="meta"))
+
+        # if setting streaming is supported, enable the streaming selector
+        if self.ag.stream_tokens is not None:
+            self.query_one(StatusBar).enable_stream_selector()
+            self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
+        else:
+            self.query_one(StatusBar).disable_stream_selector()
+
+    @on(StatusBar.StreamingChangedMessage)
+    def change_streaming_handler(
+        self, message: StatusBar.StreamingChangedMessage
+    ) -> None:
+        self.ag.stream_tokens = message.streaming
 
     def on_key(self, event: events.Key) -> None:
         """Write Key events to log."""
@@ -386,20 +426,6 @@ class ChatApp(App):
     def watch__show_debug(self, show_debug: bool) -> None:
         """When __show_debug changes, toggle the class the debug widget."""
         self.app.set_class(show_debug, "-show-debug")
-
-    def set_agent(self, agent: str, model_name: str = "", temperature: float = 0.0):
-        """Set the agent and reinitialize the conversation chain."""
-
-        self.current_agent = agent
-        if agent not in self.agents:
-            raise ValueError(f"agent '{agent}' not found")
-
-        if model_name == "":
-            model_name = self.llm_model_name
-
-        self.conversation = self.ag.new_conversation(
-            agent=agent, model_id=model_name, temperature=temperature
-        )
 
     # Add addtional retry logic to the ask_question function
     @retry(tries=3, delay=1)
@@ -514,16 +540,7 @@ class ChatApp(App):
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
-            self.post_message(
-                self.AddToChatMessage(
-                    role="assistant",
-                    message=f"Setting agent to '{agent}'",
-                    agent_name="meta",
-                )
-            )
-            self._current_question = ""
             self.set_agent(agent=agent)
-            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question is 'models', or 'model', show available models
