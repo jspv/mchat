@@ -13,7 +13,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import Reactive
 from textual.widgets import Footer, Header
-from textual.worker import Worker
+from textual.worker import Worker, WorkerState
 from textual_dominfo import DOMInfo
 
 from config import settings
@@ -306,6 +306,24 @@ class ChatApp(App):
         agent = message.agent
         if agent != self.current_agent:
             await self.set_agent(agent)
+
+    @on(StatusBar.EndButtonPressedMessage)
+    async def end_button_pressed(
+        self, message: StatusBar.EndButtonPressedMessage
+    ) -> None:
+        """End the current conversation turn."""
+        self.ag.terminate()
+        self.log.debug("End button pressed")
+        self.post_message(self.EndChatTurn(role="assistant"))
+
+    @on(StatusBar.EscapeButtonPressedMessage)
+    async def escape_button_pressed(
+        self, message: StatusBar.EscapeButtonPressedMessage
+    ) -> None:
+        """End the current team execution immediately."""
+        self.ag.cancel()
+        self.log.debug("Escape button pressed")
+        self.post_message(self.EndChatTurn(role="assistant"))
 
     async def set_agent(
         self,
@@ -769,6 +787,8 @@ class ChatApp(App):
         # change instructions to mark loading
         instructions = self.query_one("#instructions")
         instructions.loading = True
+        self.query_one(StatusBar).enable_end_button()
+        self.query_one(StatusBar).enable_escape_button()
 
         try:
             # self.ag.stream_tokens = False
@@ -782,6 +802,8 @@ class ChatApp(App):
                 )
             )
         instructions.loading = False
+        self.query_one(StatusBar).disable_end_button()
+        self.query_one(StatusBar).disable_escape_button()
 
         # Done with response; clear the chatbox
         self.scroll_to_end()
@@ -790,9 +812,11 @@ class ChatApp(App):
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Called when the worker state changes."""
 
-        # if the worker is done, scroll to the end of the chatbox
-        # if event.state == Worker.State.SUCCESS:
-        #     self.post_message(self.EndChatTurn(role="user"))
+        if event.state == WorkerState.CANCELLED:
+            self.query_one("#instructions").loading = False
+            self.query_one(StatusBar).disable_end_button()
+            self.query_one(StatusBar).disable_escape_button()
+            self.scroll_to_end()
         self.log(event)
 
     def run(self, *args, **kwargs):

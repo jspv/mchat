@@ -546,6 +546,16 @@ class AutogenManager(object):
             self._stream_tokens = value
             self.log(f"token streaming for {self._model_id} set to disabled")
 
+    def cancel(self) -> None:
+        """Cancel the current conversation"""
+        if self._cancelation_token:
+            self._cancelation_token.cancel()
+
+    def terminate(self) -> None:
+        """Terminate the current conversation"""
+        if hasattr(self, "terminator"):
+            self.terminator.set()
+
     def clear_memory(self) -> None:
         """Clear the memory"""
         if hasattr(self, "agent") and hasattr(self.agent, "_model_context:"):
@@ -752,7 +762,9 @@ class AutogenManager(object):
 
         text_termination = TextMentionTermination(agent_data["termination_message"])
         max_message_termination = MaxMessageTermination(max_rounds)
-        termination = text_termination | max_message_termination
+        self.terminator = ExternalTermination()  # for custom terminations
+
+        termination = text_termination | max_message_termination | self.terminator
 
         if team_type == "round_robin":
             return RoundRobinGroupChat(agents, termination_condition=termination)
@@ -800,6 +812,7 @@ class AutogenManager(object):
             async for response in agent_run(**kwargs):
                 # Ingore the autogen tool call summary messages that follow a
                 # tool call
+
                 if isinstance(response, ToolCallSummaryMessage):
                     self.log(f"ignoring tool call summary message: {response.content}")
                     continue
@@ -851,28 +864,8 @@ class AutogenManager(object):
                     continue
                 await self._message_callback("\n\n<unknown>\n\n", flush=True)
                 await self._message_callback(repr(response), flush=True)
+
             return response
-
-        # Testing refactor - remove this if working
-        # async def team_run_stream(task: str, oneshot: bool = False) -> TaskResult:
-        #     """Run the team and handle the responses
-
-        #     Parameters
-        #     ----------
-        #     task : str
-        #         Task for the team to run
-        #     oneshot : bool, optional
-        #         Terminate after first response (single agent teams), by default False
-        #     """
-        #     # Generate a cancelation token
-        #     self._cancelation_token = CancellationToken()
-        #     response: TaskResult = await field_responses(
-        #         self.agent_team.run_stream,
-        #         oneshot=oneshot,
-        #         task=message,
-        #         cancellation_token=self._cancelation_token,
-        #     )
-        #     return response
 
         self._cancelation_token = CancellationToken()
         oneshot = True if len(self.agent_team._participants) == 1 else False
@@ -882,6 +875,7 @@ class AutogenManager(object):
             task=message,
             cancellation_token=self._cancelation_token,
         )
+        self._cancelation_token = None
 
         # if there is only one agent in the team, just run the agent
         # if len(self.agent_team._participants) == 1:
@@ -889,25 +883,6 @@ class AutogenManager(object):
         # else:
         #     result = await team_run_stream(task=message)
         self.log(f"result: {result.stop_reason}")
-
-        # Not using this, keeping it here in case I want to revisit
-        # async def assistant_run() -> None:
-        #     response = await self.agent.on_messages(
-        #         [TextMessage(content=message, source="user")],
-        #         cancellation_token=CancellationToken(),
-        #     )
-        #     return response
-
-        # Not using this as it was cumbersome and cleaner to support single-agent
-        # teams, leaving it here in case I want to revisit.
-        # async def agent_run_stream(task: str) -> None:
-        #     # Generate a cancelation token
-        #     self._cancelation_token = CancellationToken()
-        #     await field_responses(
-        #         self.agent.on_messages_stream,
-        #         messages=[TextMessage(content=task, source="user")],
-        #         cancellation_token=self._cancelation_token,
-        #     )
 
 
 class LLMTools:

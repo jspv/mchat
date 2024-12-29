@@ -6,7 +6,7 @@ from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Label, Select
+from textual.widgets import Button, Label, Select
 
 
 class StatusBar(Widget):
@@ -17,6 +17,8 @@ class StatusBar(Widget):
 
     def compose(self) -> ComposeResult:
         with HorizontalGroup():
+            yield Button("End", id="end_button")
+            yield Button("ESC", id="escape_button")
             yield Label("Agent:")
             # Actual values will get filled in later
             self.agent_selector = Select(
@@ -35,6 +37,10 @@ class StatusBar(Widget):
                 [("", "")], allow_blank=False, id="model_selector"
             )
             yield self.model_selector
+
+    async def on_mount(self) -> None:
+        self.query_one("#end_button").disabled = True
+        self.query_one("#escape_button").disabled = True
 
     def load_agents(
         self, agents: List[Tuple[str, str]], value: str | None = None
@@ -62,6 +68,16 @@ class StatusBar(Widget):
         """Set the current agent"""
         self.agent_selector.value = value
 
+    @property
+    def model(self) -> str:
+        """Get the current model"""
+        return self.model_selector.value
+
+    @model.setter
+    def model(self, value: str) -> None:
+        """Set the current model"""
+        self.model_selector.value = value
+
     def disable_stream_selector(self) -> None:
         """Disable the streaming selector"""
         self.streaming_selector.value = "Off"
@@ -77,6 +93,29 @@ class StatusBar(Widget):
             self.streaming_selector.value = "On"
         else:
             self.streaming_selector.value = "Off"
+
+    def enable_end_button(self) -> None:
+        """Enable the end button"""
+        self.query_one("#end_button").disabled = False
+
+    def disable_end_button(self) -> None:
+        """Disable the end button"""
+        self.query_one("#end_button").disabled = True
+
+    def enable_escape_button(self) -> None:
+        """Enable the escape button"""
+        self.query_one("#escape_button").disabled = False
+
+    def disable_escape_button(self) -> None:
+        """Disable the escape button"""
+        self.query_one("#escape_button").disabled = True
+
+    @on(Button.Pressed)
+    async def button_pressed(self, event) -> None:
+        if event.button.id == "end_button":
+            self.post_message(StatusBar.EndButtonPressedMessage())
+        elif event.button.id == "escape_button":
+            self.post_message(StatusBar.EscapeButtonPressedMessage())
 
     def enable_model_selector(self) -> None:
         """Enable the model selector"""
@@ -116,3 +155,11 @@ class StatusBar(Widget):
     @dataclass
     class StreamingChangedMessage(Message):
         streaming: bool
+
+    @dataclass
+    class EndButtonPressedMessage(Message):
+        pass
+
+    @dataclass
+    class EscapeButtonPressedMessage(Message):
+        pass

@@ -120,6 +120,30 @@ StatusBar {
 
 }
 
+StatusBar Button {
+    border: none;
+    height: 1;
+    width: 5;
+    min_width: 5;
+    background: $background-lighten-1;
+    color: $text;
+    padding: 0 0 0 0;
+    text-style: bold;
+}
+
+#end_button {
+    color: orange;
+}
+
+#escape_button {
+    color: red;
+}
+
+StatusBar Button:hover {
+    background: $primary-background;
+    color: $text;
+}
+
 StatusBar Select {
     # border: green;
     height: 1;
