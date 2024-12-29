@@ -19,11 +19,10 @@ class DebugPane(VerticalScroll):
     ) -> None:
         self._entries[key] = (keymsg, value)
         # if value is callable, call it to get the value
-        if isinstance(value, Callable):
-            value = str(value())
         if asyncio.iscoroutinefunction(value):
             value = str(await value())
-
+        elif isinstance(value, Callable):
+            value = str(value())
         self.mount(
             Collapsible(
                 Static(str(value), id="debug-" + key), title=keymsg, collapsed=collapsed

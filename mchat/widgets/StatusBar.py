@@ -52,6 +52,16 @@ class StatusBar(Widget):
         if value is not None:
             self.model_selector.value = value
 
+    @property
+    def agent(self) -> str:
+        """Get the current agent"""
+        return self.agent_selector.value
+
+    @agent.setter
+    def agent(self, value: str) -> None:
+        """Set the current agent"""
+        self.agent_selector.value = value
+
     def disable_stream_selector(self) -> None:
         """Disable the streaming selector"""
         self.streaming_selector.value = "Off"

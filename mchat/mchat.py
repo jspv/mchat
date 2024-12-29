@@ -159,30 +159,6 @@ class ChatApp(App):
 
         # The conversation is initialized in the on_mount method
 
-    async def _reinitialize_llm_model(self, model_context: dict | None = None):
-        """re-initialize the language model."""
-
-        self.conversation = self.ag.new_conversation(
-            self.current_agent,
-            model_id=self.llm_model_name,
-            temperature=self.llm_temperature,
-        )
-
-        # if there are messages, we're restoring a historical session, create new
-        # memory and reinitialize the conversation
-
-        if model_context:
-            await self.ag.update_memory(model_context)
-
-        debug_pane = self.query_one(DebugPane)
-
-        # debug_pane.update_entry(
-        #     "summary_buffer",
-        #     lambda: self.memory.moving_summary_buffer,
-        # )
-
-        await debug_pane.update_status()
-
     def _reinitialize_image_model(self):
         """re-initialize the image model."""
         self.image_model = self.mm.open_model(self.image_model_name, model_type="image")
@@ -207,12 +183,11 @@ class ChatApp(App):
                 yield StatusBar()
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self.title = "mchat - Multi-Model Chatbot"
 
         # Initialize the conversation
         self.default_agent = getattr(settings, "defaults.agent", "default")
-        self.set_agent(self.default_agent, self.llm_model_name, self.llm_temperature)
 
         # load the agents and select the default
         self.query_one(StatusBar).load_agents(
@@ -222,6 +197,10 @@ class ChatApp(App):
                 if data.get("chooseable", True)
             ],
             value=self.default_agent,
+        )
+
+        await self.set_agent(
+            self.default_agent, self.llm_model_name, self.llm_temperature
         )
 
         # set focus to the input box
@@ -321,13 +300,19 @@ class ChatApp(App):
         self.ask_question(event.value)
 
     @on(StatusBar.AgentChangedMessage)
-    def change_agent_handler(self, message: StatusBar.AgentChangedMessage) -> None:
+    async def change_agent_handler(
+        self, message: StatusBar.AgentChangedMessage
+    ) -> None:
         agent = message.agent
         if agent != self.current_agent:
-            self.set_agent(agent)
+            await self.set_agent(agent)
 
-    def set_agent(
-        self, agent: str, model_name: str = "", temperature: float = 0.0
+    async def set_agent(
+        self,
+        agent: str,
+        model_name: str = "",
+        temperature: float = 0.0,
+        model_context: dict | None = None,
     ) -> None:
         """Change the agent"""
         if not agent:
@@ -339,9 +324,12 @@ class ChatApp(App):
         if model_name == "":
             model_name = self.llm_model_name
 
-        self.conversation = self.ag.new_conversation(
+        self.conversation = await self.ag.new_conversation(
             agent=agent, model_id=model_name, temperature=temperature
         )
+
+        if model_context:
+            await self.ag.update_memory(model_context)
 
         self.post_message(
             self.AddToChatMessage(
@@ -353,12 +341,25 @@ class ChatApp(App):
         self._current_question = ""
         self.post_message(self.EndChatTurn(role="meta"))
 
+        # update the agent in the status bar if needed
+        # (e.g. if the agent was set by command)
+        if self.query_one(StatusBar).agent != agent:
+            self.query_one(StatusBar).agent = agent
+
         # if setting streaming is supported, enable the streaming selector
         if self.ag.stream_tokens is not None:
             self.query_one(StatusBar).enable_stream_selector()
             self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
         else:
             self.query_one(StatusBar).disable_stream_selector()
+
+        debug_pane = self.query_one(DebugPane)
+        # debug_pane.update_entry(
+        #     "summary_buffer",
+        #     lambda: self.memory.moving_summary_buffer,
+        # )
+
+        await debug_pane.update_status()
 
     @on(StatusBar.StreamingChangedMessage)
     def change_streaming_handler(
@@ -479,6 +480,7 @@ class ChatApp(App):
                     self.AddToChatMessage(
                         role="assistant",
                         message="You're already in a new session",
+                        agent_name="meta",
                     )
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
@@ -490,10 +492,10 @@ class ChatApp(App):
             # start a new history session
             history = self.query_one(HistoryContainer)
             self.record = await history.new_session()
-            self.set_agent(self.default_agent)
             self.llm_model_name = self.mm.default_chat_model
             self.llm_temperature = self.mm.default_chat_temperature
-            self._reinitialize_llm_model()
+            await self.set_agent(self.default_agent)
+            # self._reinitialize_llm_model()
             return
 
         # if the question is either 'agent', or 'agents' show the available agents
@@ -540,7 +542,7 @@ class ChatApp(App):
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
-            self.set_agent(agent=agent)
+            await self.set_agent(agent=agent)
             return
 
         # if the question is 'models', or 'model', show available models
@@ -558,19 +560,27 @@ class ChatApp(App):
             )
             for model in self.available_llm_models:
                 self.post_message(
-                    self.AddToChatMessage(role="assistant", message=f"   - {model}\n"),
-                    agent_name="meta",
+                    self.AddToChatMessage(
+                        role="assistant",
+                        message=f"   - {model}\n",
+                        agent_name="meta",
+                    )
                 )
             self.post_message(
-                self.AddToChatMessage(role="assistant", message="- Image Models:\n")
+                self.AddToChatMessage(
+                    role="assistant",
+                    message="- Image Models:\n",
+                    agent_name="meta",
+                )
             )
             for model in self.available_image_models:
                 (
                     self.post_message(
                         self.AddToChatMessage(
-                            role="assistant", message=f"   - {model}\n"
-                        ),
-                        agent_name="meta",
+                            role="assistant",
+                            message=f"   - {model}\n",
+                            agent_name="meta",
+                        )
                     ),
                 )
             self._current_question = ""
@@ -587,7 +597,8 @@ class ChatApp(App):
             if model_name in self.available_llm_models:
                 self.llm_model_name = model_name
                 self.log.debug(f"switching to llm model {model_name}")
-                self._reinitialize_llm_model()
+                await self.set_agent(self.current_agent, model_name=model_name)
+                # self._reinitialize_llm_model()
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",
@@ -652,7 +663,8 @@ class ChatApp(App):
                 )
             )
             self._current_question = question
-            self._reinitialize_llm_model()
+            # self._reinitialize_llm_model()
+            await self.set_agent(self.current_agent)
             self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
             return
 
@@ -661,17 +673,45 @@ class ChatApp(App):
             self.post_message(self.EndChatTurn(role="meta"))
 
             self.ag.stream_tokens = True
-            self.post_message(
-                self.AddToChatMessage(role="assistant", message="Stream tokens are on")
-            )
+            # if the agent doesn't support streaming, stream_tokens will be None
+            if self.ag.stream_tokens is not None:
+                self.query_one(StatusBar).enable_stream_selector()
+                self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant", message="Stream tokens are on"
+                    )
+                )
+            else:
+                self.query_one(StatusBar).disable_stream_selector()
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant", message="Stream tokens are currently disabled"
+                    )
+                )
+
             self.post_message(self.EndChatTurn(role="meta"))
             return
         if question.startswith("stream off"):
             self.post_message(self.EndChatTurn(role="meta"))
             self.ag.stream_tokens = False
-            self.post_message(
-                self.AddToChatMessage(role="assistant", message="Stream tokens are off")
-            )
+            # if the agent doesn't support streaming, stream_tokens will be None
+            if self.ag.stream_tokens is not None:
+                self.query_one(StatusBar).enable_stream_selector()
+                self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant", message="Stream tokens are off"
+                    )
+                )
+            else:
+                self.query_one(StatusBar).disable_stream_selector()
+                self.post_message(
+                    self.AddToChatMessage(
+                        role="assistant", message="Stream tokens are currently disabled"
+                    )
+                )
+
             self.post_message(self.EndChatTurn(role="meta"))
             return
         if question == ("stream"):
@@ -896,14 +936,17 @@ class ChatApp(App):
         if len(self.record.turns) == 0:
             self._current_question = ""
             self.ag.clear_memory()
-            self.set_agent(self.default_agent)
+            await self.set_agent(self.default_agent)
         else:
             # load the parameters from the last turn and reinitialize
             self.current_agent = self.record.turns[-1].agent
             self.llm_model_name = self.record.turns[-1].model
             self.llm_temperature = self.record.turns[-1].temperature
             self._current_question = self.record.turns[-1].prompt
-            await self._reinitialize_llm_model(self.record.turns[-1].memory_messages)
+            await self.set_agent(
+                self.current_agent, model_context=self.record.turns[-1].memory_messages
+            )
+            # await self._reinitialize_llm_model(self.record.turns[-1].memory_messages)
 
         # clear the chatboxes from the chat container
         self.chat_container.remove_children()

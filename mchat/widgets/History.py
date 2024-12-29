@@ -56,7 +56,6 @@ class HistorySessionBox(Widget, can_focus=True):
                 yield self.copy_button
                 yield DeleteButton(id="history-session-box-delete")
             self.summary_box = SummaryBox()
-            self.update_box(self.record)
             if len(self.record.turns) == 0:
                 self.summary_box.update(self.new_label)
                 self.copy_button.visible = False
@@ -67,7 +66,11 @@ class HistorySessionBox(Widget, can_focus=True):
                     self.summary_box.update(self.record.turns[-1].prompt)
             yield self.summary_box
 
-    async def update_box(self, record: ConversationRecord) -> None:
+    def on_mount(self) -> None:
+        # can't update the box until it is mounted
+        self.update_box(self.record)
+
+    def update_box(self, record: ConversationRecord) -> None:
         """Update the HistorySessionBox with a new ConversationRecord."""
 
         self.record = record
@@ -285,7 +288,7 @@ class HistoryContainer(VerticalScroll):
         record.summary = await LLMTools.aget_summary_label(conversation)
 
         # update the active session
-        await self.active_session.update_box(record)
+        self.active_session.update_box(record)
 
         # update the database
         self._write_conversation_to_db(self.connection, record)

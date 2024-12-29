@@ -554,7 +554,7 @@ class AutogenManager(object):
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
 
-    def new_conversation(
+    async def new_conversation(
         self, agent: str, model_id, temperature: float = 0.0, stream_tokens: bool = True
     ) -> None:
         """Intialize a new conversation with the given agent and model
@@ -660,11 +660,11 @@ class AutogenManager(object):
                 self._agents[agent]["extra_context"] = []
             for extra in self._agents[agent]["extra_context"]:
                 if extra[0] == "ai":
-                    self.agent._model_context.add_message(
+                    await self.agent._model_context.add_message(
                         AssistantMessage(content=extra[1], source=agent)
                     )
                 elif extra[0] == "human":
-                    self.agent._model_context.add_message(
+                    await self.agent._model_context.add_message(
                         UserMessage(content=extra[1], source="user")
                     )
                 elif extra[0] == "system":
@@ -779,126 +779,6 @@ class AutogenManager(object):
                 )
         else:
             raise ValueError(f"Unknown team type {team_type}")
-
-    # def _create_team_round_robin(self, agent_data: dict) -> RoundRobinGroupChat:
-    #     """Create a team of agents that will operate in a round-robin fashion
-
-    #     Parameters
-    #     ----------
-    #     agent_data : dict
-    #         description of the agent team
-
-    #     Returns
-    #     -------
-    #     RoundRobinGroupChat
-    #         autogen RoundRobinGroupChat object
-    #     """
-
-    #     # agent_data needs to be a team
-    #     if "type" not in agent_data or agent_data["type"] != "team":
-    #         raise ValueError("agent_data for round_robin team must be a team")
-
-    #     agents = []
-    #     for agent in agent_data["agents"]:
-    #         subagent_data = self._agents[agent]
-    #         if "model" in subagent_data:
-    #             model_client = self.mm.open_model(subagent_data["model"])
-    #         else:
-    #             model_client = self.mm.open_model(self.mm.default_chat_model)
-
-    #         # don't use tools if the model does't support them
-    #         if (
-    #             not self.mm.get_tool_support(subagent_data["model"])
-    #             or not model_client.capabilities["function_calling"]
-    #             or "tools" not in subagent_data
-    #         ):
-    #             tools = None
-    #         else:
-    #             # load the tools
-    #             tools = []
-    #             for tool in subagent_data["tools"]:
-    #                 tools.append(self.tools[tool])
-
-    #         agents.append(
-    #             AssistantAgent(
-    #                 name=agent,
-    #                 model_client=model_client,
-    #                 tools=tools,
-    #                 system_message=subagent_data["description"],
-    #                 reflect_on_tool_use=True,
-    #             )
-    #         )
-
-    #     max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
-
-    #     text_termination = TextMentionTermination(agent_data["termination_message"])
-    #     max_message_termination = MaxMessageTermination(max_rounds)
-    #     termination = text_termination | max_message_termination
-    #     team = RoundRobinGroupChat(agents, termination_condition=termination)
-    #     return team
-
-    # def _create_team_selector(self, agent_data: dict) -> SelectorGroupChat:
-    #     """Create a team of agents that will operate in a selector fashion
-
-    #     Parameters
-    #     ----------
-    #     agent_data : dict
-    #         description of the agent team
-
-    #     Returns
-    #     -------
-    #     SelectorGroupChat
-    #         autogen SelectorGroupChat object
-    #     """
-
-    #     # agent_data needs to be a team
-    #     if "type" not in agent_data or agent_data["type"] != "team":
-    #         raise ValueError("agent_data for selector team must be a team")
-
-    #     if "team_model" not in agent_data:
-    #         raise ValueError("Error in team Selector team must have a team_model")
-    #     team_model = self.mm.open_model(agent_data["team_model"])
-
-    #     agents = []
-    #     for agent in agent_data["agents"]:
-    #         subagent_data = self._agents[agent]
-    #         if "model" in subagent_data:
-    #             model_client = self.mm.open_model(subagent_data["model"])
-    #         else:
-    #             model_client = self.mm.open_model(self.mm.default_chat_model)
-
-    #         # don't use tools if the model does't support them
-    #         if (
-    #             not self.mm.get_tool_support(subagent_data["model"])
-    #             or not model_client.capabilities["function_calling"]
-    #             or "tools" not in subagent_data
-    #         ):
-    #             tools = None
-    #         else:
-    #             # load the tools
-    #             tools = []
-    #             for tool in subagent_data["tools"]:
-    #                 tools.append(self.tools[tool])
-
-    #         agents.append(
-    #             AssistantAgent(
-    #                 name=agent,
-    #                 model_client=model_client,
-    #                 tools=tools,
-    #                 system_message=subagent_data["description"],
-    #                 reflect_on_tool_use=True,
-    #             )
-    #         )
-
-    #     max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
-
-    #     text_termination = TextMentionTermination(agent_data["termination_message"])
-    #     max_message_termination = MaxMessageTermination(max_rounds)
-    #     termination = text_termination | max_message_termination
-    #     team = SelectorGroupChat(
-    #         agents, model_client=team_model, termination_condition=termination
-    #     )
-    #     return team
 
     async def ask(self, message: str) -> TaskResult:
         async def field_responses(
