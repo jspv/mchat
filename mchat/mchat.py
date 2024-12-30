@@ -335,9 +335,9 @@ class ChatApp(App):
         """Change the agent"""
         if not agent:
             return
-        self.current_agent = agent
         if agent not in self.agents:
             raise ValueError(f"agent '{agent}' not found")
+        self.current_agent = agent
 
         if model_name == "":
             model_name = self.llm_model_name
@@ -445,11 +445,6 @@ class ChatApp(App):
     def watch__show_debug(self, show_debug: bool) -> None:
         """When __show_debug changes, toggle the class the debug widget."""
         self.app.set_class(show_debug, "-show-debug")
-
-    # Add addtional retry logic to the ask_question function
-    @retry(tries=3, delay=1)
-    async def _ask_question_to_llm(self, question: str, callbacks: List[Callable]):
-        await self.conversation.arun(question, callbacks=callbacks)
 
     @work(exclusive=True)
     async def ask_question(self, question: str):

@@ -533,15 +533,14 @@ class AutogenManager(object):
         # if there is an agent, set token callback in the agent if the value is True
         if hasattr(self, "agent"):
             if value:
-                self.agent._token_callback = self._message_callback
+                callback = partial(self._message_callback, agent=self.agent.name)
+                self.agent._token_callback = callback
                 self._stream_tokens = True
                 self.log(f"token streaming for agent and {self._model_id} enabled")
-                # self._currently_streaming = True
             else:
                 self.agent._token_callback = None
                 self._stream_tokens = False
                 self.log(f"token streaming for agent and {self._model_id} disabled")
-                # self._currently_streaming = False
         else:
             self._stream_tokens = value
             self.log(f"token streaming for {self._model_id} set to disabled")
@@ -629,8 +628,8 @@ class AutogenManager(object):
             # wrap the callback in a partial to pass the agent name
             callback = partial(self._message_callback, agent=agent)
 
-            # Need to resent and 'enable' setting of stream_tokens by setting to
-            # non-None value stream tokens setter then will check if the model
+            # Need to reset and 'enable' setting of _stream_tokens by setting to
+            # non-None value, the stream tokens setter then will check if the model
             # supports streaming and will eiither set it or diasble as needed
             self._stream_tokens = stream_tokens
             self.stream_tokens = stream_tokens
