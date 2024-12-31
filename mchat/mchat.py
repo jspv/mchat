@@ -156,6 +156,9 @@ class ChatApp(App):
             self.image_model = self.mm.open_model(
                 self.image_model_name, model_type="image"
             )
+        else:
+            self.image_model_name = None
+            self.image_model = None
 
         # The conversation is initialized in the on_mount method
 
@@ -611,7 +614,6 @@ class ChatApp(App):
                 self.llm_model_name = model_name
                 self.log.debug(f"switching to llm model {model_name}")
                 await self.set_agent(self.current_agent, model_name=model_name)
-                # self._reinitialize_llm_model()
                 self.post_message(
                     self.AddToChatMessage(
                         role="assistant",
@@ -620,7 +622,7 @@ class ChatApp(App):
                     )
                 )
                 self._current_question = ""
-                self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
+                self.post_message(self.EndChatTurn(role="meta"))
                 return
             elif model_name in self.available_image_models:
                 self.image_model_name = model_name
@@ -634,7 +636,7 @@ class ChatApp(App):
                     )
                 )
                 self._current_question = ""
-                self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
+                self.post_message(self.EndChatTurn(role="meta"))
                 return
             else:
                 self.post_message(
@@ -896,7 +898,7 @@ class ChatApp(App):
 
     @on(EndChatTurn)
     async def end_chat_turn(self, event: EndChatTurn) -> None:
-        """Called when the worker state changes."""
+        """close the current chat turn"""
 
         # some situations can cause EndChatTurn to be successively called, so there
         # may not be an existing chatbox on the second call
@@ -919,7 +921,7 @@ class ChatApp(App):
                 memory_messages=await self.ag.get_memory(),
             )
 
-        # If we hae a response, add the response to the current turn
+        # If we have a response, add the response to the current turn
         if event.role == "assistant":
             self.record.add_to_turn(
                 agent_name=agent_name,

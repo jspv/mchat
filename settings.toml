@@ -7,25 +7,47 @@ generate_image_log_file = "generate_image.log"
 # Models
 # sections need to start with model. (with period) and no other periods in the section name
 # model.type.model_id, model_id is what will show in the interface
+
+# 
+# Required Fields
+# 
+# Chat Models
+# - api_type: ["open_ai", "azure"]
+# - model_type: "chat"
+# - model: "name of model"
+# - api_key: "your key or dynaconf lookup to get the key"
+# - model: "the openai name for the model"
+#
+# Azure Chat Models (additional)
+# - azure_endpoint: "URL for your endpoint"
+# - azure_deployment: "the azure name for the model in your deployment"
+# - api_version = "api version"
+#
+# Image Models
+# - api_type: ["open_ai", "azure"]
+# - model_type: "image"
+# - model: "name of model"
+# - size: "size of images to create"
+# - num_images: "number of images to create"
+# - api_key: "your key or dynaconf lookup to get the key"
+# 
+# Azure Image Model (additional)
+# - azure_endpoint: "URL for your endpoint"
+# - azure_deployment: "the azure name for the model in your deployment"
+# - api_version = "api version"
+
+
 [models.chat.gpt-35-turbo]
 api_key = "@format {this.openai_api_key}"
 model = "gpt-3.5-turbo"
 api_type = "open_ai"
 base_url = "https://api.openai.com/v1"
-_max_context = 16385
-_max_tokens = 4096
-_cost_input = 0.0010
-_cost_output = 0.0020
 
 [models.chat.gpt-4o]
 api_key = "@format {this.openai_api_key}"
 model = "gpt-4o"
 api_type = "open_ai"
 base_url = "https://api.openai.com/v1"
-_max_tokens = 40000
-_max_context = 128000
-_cost_input = 0.005
-_cost_output = 0.0015
 
 [models.chat.o1-preview]
 api_key = "@format {this.openai_api_key}"
@@ -44,10 +66,6 @@ model = "gpt-4o-2024-05-13"
 azure_deployment = "gpt-4o"
 azure_endpoint = "@format {this.azure_endpoint}"
 api_version = "2024-06-01"
-_max_tokens = 4000
-_max_context = 128000
-_cost_input = 0.005
-_cost_output = 0.0015
 
 [models.chat.azure_openai_gpt_35]
 api_key = "@format {this.azure_openai_api_key}"
@@ -56,10 +74,6 @@ model = "gpt-3.5-turbo"
 azure_deployment = "gpt-35-turbo"
 azure_endpoint = "@format {this.azure_endpoint}"
 api_version = "2023-09-01-preview"
-_max_tokens = 4096
-_max_context = 16385
-_cost_input = 0.0015
-_cost_output = 0.002
 
 [models.image.dall-e-2]
 api_key = "@format {this.openai_api_key}"
@@ -68,7 +82,6 @@ api_type = "open_ai"
 size = "1024x1024"
 quality = "standard"
 num_images = 1
-_cost_output = 0.020
 
 [models.image.dall-e-3]
 api_key = "@format {this.openai_api_key}"
@@ -77,13 +90,11 @@ api_type = "open_ai"
 size = "1024x1024"
 quality = "standard"
 num_images = 1
-_cost_output = 0.080
 
 [models.embedding.text-embedding-ada-002]
 api_key = "@format {this.openai_api_key}"
 model = "text-embedding-ada-002"
 api_type = "open_ai"
-_cost_input = 0.0001
 
 [models.embedding.azure_text-embedding-ada-002]
 api_key = "@format {this.azure_openai_api_key}"
@@ -92,7 +103,6 @@ api_type = "azure"
 api_version = "2023-09-01-preview"
 azure_endpoint = "@format {this.azure_endpoint}"
 azure_deployment = "text-embedding-ada-002"
-_cost_input = 0.0001
 
 [defaults]
 
@@ -105,11 +115,20 @@ embedding_model = "text-embedding-ada-002"
 
 # for memory summary and history labels
 memory_model = "gpt-4o"
-# memory_model = "azure_openai_gpt_35"
 memory_model_temperature = 0.1
 memory_model_max_tokens = 2048
 
-# in .secrets.toml
+#
+# either here or in .secrets.toml
+# 
+
+# OpenAI API
 # openai_api_key = "oai_ai_api_key_goes_here"
-# azure_openai_api_key = "ms_openai_api_key_goes_here"
-# azure_openai_base_url = "your deployment base url goes here"
+
+# Azure OpenAI API
+# azure_openai_api_key = "azure_api_key_goes_here"
+# azure_endpoint = "azure_endpoint_goes_here"
+
+# Google Search API
+# google_api_key = "google_api_key_goes_here"
+# google_search_engine_id = "google_search_engine_id_goes_here"

@@ -137,7 +137,7 @@ class ModelConfigImageOpenAI(ModelConfig):
     num_images: int
     model_type: Literal["image"]
     api_type: Literal["open_ai"]
-    _cost_output: float | None
+    _cost_output: float | None = None
     _temperature_support: bool | None = None
     _streaming_support: bool | None = False
     _tool_support: bool | None = False
@@ -220,8 +220,8 @@ class ModelManager:
 
         # Set the default models
         self.default_chat_model = settings.defaults.chat_model
-        self.default_image_model = settings.defaults.image_model
-        self.default_embedding_model = settings.defaults.embedding_model
+        self.default_image_model = settings.get("defaults.image_model", None)
+        self.default_embedding_model = settings.get("defaults.embedding_model", None)
         self.default_chat_temperature = settings.defaults.chat_temperature
         self.default_memory_model = settings.defaults.memory_model
         self.default_memory_model_temperature = (
@@ -248,6 +248,8 @@ class ModelManager:
     @property
     def available_image_models(self) -> list:
         """Returns a list of available image models"""
+        if "image" not in self.model_configs:
+            return []
         return [x for x in self.model_configs["image"].keys()]
 
     @property
