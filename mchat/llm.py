@@ -255,17 +255,16 @@ class ModelManager:
     @property
     def available_chat_models(self) -> list:
         """Returns a list of available chat models"""
+        if "chat" not in self.model_configs:
+            return []
         return [x for x in self.model_configs["chat"].keys()]
 
     @property
     def available_embedding_models(self) -> list:
         """Returns a list of available embedding models"""
+        if "embedding" not in self.model_configs:
+            return []
         return [x for x in self.model_configs["embedding"].keys()]
-
-    @property
-    def autogen_config_list(self) -> list:
-        """Returns a list of available chat models suitable for autogen"""
-        return self.make_autogen_config_list(self.chat_config_list)
 
     def filter_config(self, filter_dict):
         """Filter the config list by provider and model.
@@ -416,9 +415,10 @@ class AutogenManager(object):
         logger: Callable | None = None,
     ):
         self.mm = ModelManager()
-        self._message_callback = message_callback
+        self._message_callback = message_callback  # send messages back to the UI
         self._agents = agents if agents is not None else {}
-        self._stream_tokens = stream_tokens
+        self._stream_tokens = stream_tokens  # streaming currently enabled or not
+        self._streaming_preference = stream_tokens  # remember the last setting
         self._logger_callback = logger
 
         # model being used by the agent, will be set when a new conversation is started
@@ -426,12 +426,6 @@ class AutogenManager(object):
 
         # Will be used to cancel ongoing tasks
         self._cancelation_token = None
-
-        # Load LLM inference endpoints from an environment variable or a file
-        self.config_list = self.mm.filter_config({"model_type": "chat"})
-
-        if not self.config_list:
-            raise ValueError("No chat models found in the configuration")
 
         # Inialize available tools
         self.tools = {}
@@ -453,19 +447,22 @@ class AutogenManager(object):
             today,
             description=("Call this to get the current date, time, and timezone"),
         )
-        # need to give the API key to the OpenAIImageAPIWrapper
-        generate_image_tool = OpenAIImageAPIWrapper(
-            api_key=settings.get("openai_api_key")
-        )
-        self.tools["generate_image"] = FunctionTool(
-            generate_image_tool.generate_image,
-            description=(
-                "Generate an image from a prompt, it will return a url and a "
-                "revised_prompt if the tool decided to enhance the prompt. Do not "
-                "alter the url in any way, and provide information back to the user "
-                "if the prompt was changed"
-            ),
-        )
+        # generate_image tool - need to give the API key to the OpenAIImageAPIWrapper
+        if settings.get("openai_api_key"):
+            generate_image_tool = OpenAIImageAPIWrapper(
+                api_key=settings.get("openai_api_key"),
+            )
+            self.tools["generate_image"] = FunctionTool(
+                generate_image_tool.generate_image,
+                description=(
+                    "Generate an image from a prompt, it will return a url and a "
+                    "revised_prompt if the tool decided to enhance the prompt. Do not "
+                    "alter the url in any way, and provide information back to the user "
+                    "if the prompt was changed"
+                ),
+            )
+        # else:
+        #     self.tools["generate_image"] = None
 
     @property
     def logger(self):
@@ -525,11 +522,14 @@ class AutogenManager(object):
             )
             return
 
+        # This remembers the last setting, so that if the model doesn't support
+        # streaming, we know what to return to when switching to one that does
+        self._streaming_preference = value
+
         # If the model doesn't support, set to None
         if not self.mm.get_streaming_support(self._model_id):
             self._stream_tokens = None
             self.log(f"token streaming for {self._model_id} not supported")
-            # self._currently_streaming = None
             return
 
         # if there is an agent, set token callback in the agent if the value is True
@@ -538,11 +538,11 @@ class AutogenManager(object):
                 callback = partial(self._message_callback, agent=self.agent.name)
                 self.agent._token_callback = callback
                 self._stream_tokens = True
-                self.log(f"token streaming for agent and {self._model_id} enabled")
+                self.log(f"token streaming for {self.agent.name} enabled")
             else:
                 self.agent._token_callback = None
                 self._stream_tokens = False
-                self.log(f"token streaming for agent and {self._model_id} disabled")
+                self.log(f"token streaming for {self.agent.name} disabled")
         else:
             self._stream_tokens = value
             self.log(f"token streaming for {self._model_id} set to disabled")
@@ -625,16 +625,14 @@ class AutogenManager(object):
             ):
                 tools = None
             else:
-                tools = [self.tools[tool] for tool in agent_data["tools"]]
+                tools = [
+                    self.tools[tool]
+                    for tool in agent_data["tools"]
+                    if tool in self.tools
+                ]
 
             # wrap the callback in a partial to pass the agent name
             callback = partial(self._message_callback, agent=agent)
-
-            # Need to reset and 'enable' setting of _stream_tokens by setting to
-            # non-None value, the stream tokens setter then will check if the model
-            # supports streaming and will eiither set it or diasble as needed
-            self._stream_tokens = stream_tokens
-            self.stream_tokens = stream_tokens
 
             # Don't use system messages if not supported
             if self.mm.get_system_prompt_support(model_id):
@@ -682,6 +680,10 @@ class AutogenManager(object):
                     raise ValueError(f"system message not implemented: {extra[0]}")
                 else:
                     raise ValueError(f"Unknown extra context type {extra[0]}")
+
+            # Set streaming to the current preference (if supported)
+            self._stream_tokens = self._streaming_preference
+            self.stream_tokens = self._streaming_preference
 
             # Build the termination conditions
             max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 10

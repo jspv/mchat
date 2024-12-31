@@ -16,12 +16,16 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
 
 ## TODO
 - [x] Copy text to past buffer when clicking on the response
-- [x] Persona support
+- [x] Agent support
 - [x] Support Multi-line prompts
 - [x] History and reloadable sessions with local database storage
 - [x] Support for image creation (currently just dall-e)
-- [ ] Support for selecting the use of mutiple models simultaneously
-- [ ] Support for functions 
+- [x] Support for functions/tools
+- [x] Round Robin multi-agent support
+- [ ] Swarm multi-agent support
+- [x] Selector multi-agent support
+- [x] Cancellation Buttons to stop running team
+  
 
 ## Table of Contents
 - [mchat](#mchat)
@@ -30,13 +34,13 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
   - [Configuration](#configuration)
-    - [Model Families](#model-families)
+    - [Models](#models)
     - [Model Lists](#model-lists)
     - [Model Configuration](#model-configuration)
     - [Default Settings](#default-settings)
     - [Memory Model Configuration](#memory-model-configuration)
     - [Secrets Configuration](#secrets-configuration)
-  - [Personas](#personas)
+  - [Agents](#agents)
   - [Usage](#usage)
       - [Alternative Usage](#alternative-usage)
   - [Contributing](#contributing)
@@ -44,29 +48,32 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
   - [Contact](#contact)
 
 ## Installation
-1. Make sure you have Python and Poetry installed on your system. If not, you can download and install them from their official websites:
+1. Make sure you have Python and uv installed on your system. If not, you can download and install them from their official websites:
    - Python: https://www.python.org
-   - Poetry: https://python-poetry.org/docs/#installation
+   - UV: https://github.com/astral-sh/uv
 
-2. Clone this repository to your local machine or download and extract the source code.
+2. Until supported by autogen, mchat depends on a slightly modified version of autogen located below.  Clone or download this version and checkout the *stream_token_0.4* branch
+   - Autogen: https://github.com/jspv/autogen/tree/stream_token_0.4
 
-3. Open a terminal or command prompt and navigate to the project directory.
+3. Clone this repository to your local machine or download and extract the source code.  mchat will expect to find autogen located as a peer directory.  E.g. /src/mchat and /src/autogen; autogen should be at ../autogen in relation to mchat.  
 
-4. Run the following command to install the project dependencies:
+4. Open a terminal or command prompt and navigate to the project directory.
+
+5. Run the following command to install the project dependencies:
 
    ```shell
-   poetry install
+   uv sync --all-extras
    ```
 
    This will create a virtual environment and install all the required dependencies specified in the `pyproject.toml` file.
 
 ## Configuration
 
-Configuration is done within three files: `settings.toml`, `.secrets.toml`(optional, but recommended) and `personas.json`
+Configuration is done within three files: `settings.toml`, `.secrets.toml`(optional, but recommended) and `agents.yaml`
 
 Open the settings.toml file in a text editor to configure your application. Here's an explanation of the provided configuration options:
 
-### Model Families
+### Models
 
 - model_families: A list of model families available, the default shows "oai_models" (OpenAI Models) and "ms_models" (Microsoft Models).  A Model family is a group of models that use the same API access token.
   
@@ -111,28 +118,28 @@ Note that some configuration options, such as API keys, are meant to be kept in 
 # ms_models_api_key = "ms_openai_api_key_goes_here"
 ```
 
-## Personas
+## Agents
 
-mchat comes with a default persona and two example personas *linux computer* and *financial manager*.  Additional personas can be added in a ```extra_personas.json``` file at the top level (same level as this README) using a similar pattern to `mchat/default_personas.json` in the code.  When configuring personas, the ```extra_context``` list can allow you to respresent a multi-shot prompt, see the `linux computer` persona in `mchat/default_personas.json` as an example.
+mchat comes with a default persona and two example agents *linux computer* and *financial manager*.  Additional agents can be added in a ```agents.yaml``` file at the top level (same level as this README) using a similar pattern to `mchat/default_personas.yaml` in the code.  When configuring personas, the ```extra_context``` list can allow you to respresent a multi-shot prompt, see the `linux computer` persona in `mchat/default_personas.json` as an example.
 
 ## Usage
-1. Run the application in poetry using the following command
+1. Run the application in uv using the following command
    
    ```shell
-   poetry run mchat
+   uv run poe mchat
    ``````
 
 #### Alternative Usage
-1. Activate the virtual environment created by Poetry using the following command:
+1. Activate the virtual environment created by uv using the following command:
 
    ```shell
-   poetry shell
+   source ./.venv/bin/activate
    ```
 
 3. Run the application using the following command:
 
    ```shell
-   mchat
+   poe mchat
    ```
 
 ## Contributing

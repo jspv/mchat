@@ -78,8 +78,8 @@ class ChatApp(App):
             "select_file('PDF File to Open', 'show_file', 'dialog_close')",
             "Open File",
         ),
-        ("ctrl+c", "my_quit", "quit"),
-        ("ctrl+t", "toggle_css_tooltip", "CSS tooltip"),
+        # ("ctrl+c", "my_quit", "quit"),
+        # ("ctrl+t", "toggle_css_tooltip", "CSS tooltip"),
     ]
 
     # Toggles debug pane on/off (default is off)
@@ -288,6 +288,8 @@ class ChatApp(App):
             # copy contents of chatbox to clipboard
             pyperclip.copy(chatturn.message)
 
+        self.notify("Copied to clipboard", timeout=1)
+
     @on(PromptInput.Submitted)
     def submit_question(self, event: events) -> None:
         input = self.query_one(PromptInput)
@@ -318,6 +320,7 @@ class ChatApp(App):
         self.ag.terminate()
         self.log.debug("End button pressed")
         self.post_message(self.EndChatTurn(role="assistant"))
+        self.notify("Conversation will end shortly", timeout=2)
 
     @on(StatusBar.EscapeButtonPressedMessage)
     async def escape_button_pressed(
@@ -327,6 +330,7 @@ class ChatApp(App):
         self.ag.cancel()
         self.log.debug("Escape button pressed")
         self.post_message(self.EndChatTurn(role="assistant"))
+        self.notify("Conversation cancelled", severity="error", timeout=2)
 
     async def set_agent(
         self,
@@ -373,6 +377,8 @@ class ChatApp(App):
             self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
         else:
             self.query_one(StatusBar).disable_stream_selector()
+
+        self.log.debug(f"Agent set to {agent}")
 
         debug_pane = self.query_one(DebugPane)
         # debug_pane.update_entry(

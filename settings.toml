@@ -8,6 +8,10 @@ generate_image_log_file = "generate_image.log"
 # sections need to start with model. (with period) and no other periods in the section name
 # model.type.model_id, model_id is what will show in the interface
 
+# Important
+# Image models and settings here are for expliclitly calling the immage models from the prompt.
+# The generate_image tool does not use these settings, only the API key
+
 # 
 # Required Fields
 # 
