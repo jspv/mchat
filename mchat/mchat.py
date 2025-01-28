@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import json
 import os
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
 import pyperclip
 import yaml
@@ -127,10 +127,7 @@ class ChatApp(App):
                     raise ValueError(
                         f"unknown extension {extension} for {EXTRA_AGENTS_FILE}"
                     )
-        else:
-            raise ValueError(f"no {EXTRA_AGENTS_FILE} file found")
-
-        self.agents.update(extra_agents)
+            self.agents.update(extra_agents)
 
         # Get an object to manage the AI models
         self.mm = ModelManager()
@@ -200,6 +197,11 @@ class ChatApp(App):
                 if data.get("chooseable", True)
             ],
             value=self.default_agent,
+        )
+
+        # load the models and select the default
+        self.query_one(StatusBar).load_models(
+            [(model, model) for model in self.available_llm_models]
         )
 
         await self.set_agent(
@@ -309,8 +311,32 @@ class ChatApp(App):
         self, message: StatusBar.AgentChangedMessage
     ) -> None:
         agent = message.agent
-        if agent != self.current_agent:
+        if agent and agent != self.current_agent:
             await self.set_agent(agent)
+
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=f"Agent set to {agent}\n\nModel set to {self.ag.model}",
+                    agent_name="meta",
+                )
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
+
+    # @on(StatusBar.ModelChangedMessage)
+    # async def change_model(self, message: StatusBar.ModelChangedMessage) -> None:
+    #     model = message.model
+    #     if model and model != self.ag.model:
+    #         await self.set_agent(self.current_agent, model_name=model)
+
+    #         self.post_message(
+    #             self.AddToChatMessage(
+    #                 role="assistant",
+    #                 message=f"Model set to {self.ag.model}",
+    #                 agent_name="meta",
+    #             )
+    #         )
+    #         self.post_message(self.EndChatTurn(role="meta"))
 
     @on(StatusBar.EndButtonPressedMessage)
     async def end_button_pressed(
@@ -336,6 +362,7 @@ class ChatApp(App):
         self,
         agent: str,
         model_name: str = "",
+        # TODO fix hardcoding of temperature
         temperature: float = 0.0,
         model_context: dict | None = None,
     ) -> None:
@@ -347,24 +374,27 @@ class ChatApp(App):
         self.current_agent = agent
 
         if model_name == "":
-            model_name = self.llm_model_name
+            model_name = self.agents[agent].get("model", self.mm.default_chat_model)
+
+        compatible_models = self.mm.get_compatible_models(agent, self.agents)
+        if model_name not in compatible_models:
+            raise ValueError(
+                f"model '{model_name}' not compatible with agent '{agent}'"
+            )
 
         self.conversation = await self.ag.new_conversation(
             agent=agent, model_id=model_name, temperature=temperature
         )
 
+        # load compatable models
+        self.query_one(StatusBar).load_models(
+            [(model, model) for model in compatible_models]
+        )
+
         if model_context:
             await self.ag.update_memory(model_context)
 
-        self.post_message(
-            self.AddToChatMessage(
-                role="assistant",
-                message=f"Setting agent to '{agent}'",
-                agent_name="meta",
-            )
-        )
         self._current_question = ""
-        self.post_message(self.EndChatTurn(role="meta"))
 
         # update the agent in the status bar if needed
         # (e.g. if the agent was set by command)
@@ -378,7 +408,11 @@ class ChatApp(App):
         else:
             self.query_one(StatusBar).disable_stream_selector()
 
+        # show the current model
+        self.query_one(StatusBar).model = self.ag.model
+
         self.log.debug(f"Agent set to {agent}")
+        self.log.debug(f"Model set to {self.ag.model}")
 
         debug_pane = self.query_one(DebugPane)
         # debug_pane.update_entry(
@@ -565,6 +599,14 @@ class ChatApp(App):
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
             await self.set_agent(agent=agent)
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=f"Agent set to {agent}\n\nModel set to {self.ag.model}",
+                    agent_name="meta",
+                )
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
             return
 
         # if the question is 'models', or 'model', show available models
@@ -619,16 +661,26 @@ class ChatApp(App):
             if model_name in self.available_llm_models:
                 self.llm_model_name = model_name
                 self.log.debug(f"switching to llm model {model_name}")
-                await self.set_agent(self.current_agent, model_name=model_name)
-                self.post_message(
-                    self.AddToChatMessage(
-                        role="assistant",
-                        message=f"LLM Model set to {self.llm_model_name}",
-                        agent_name="meta",
+                try:
+                    await self.set_agent(self.current_agent, model_name=model_name)
+                except ValueError as e:
+                    self.post_message(
+                        self.AddToChatMessage(
+                            role="assistant",
+                            message=f"Error setting model: {e}",
+                            agent_name="meta",
+                        )
                     )
-                )
-                self._current_question = ""
+                else:
+                    self.post_message(
+                        self.AddToChatMessage(
+                            role="assistant",
+                            message=f"LLM Model set to {self.llm_model_name}",
+                            agent_name="meta",
+                        )
+                    )
                 self.post_message(self.EndChatTurn(role="meta"))
+                self._current_question = ""
                 return
             elif model_name in self.available_image_models:
                 self.image_model_name = model_name
@@ -794,7 +846,6 @@ class ChatApp(App):
         self.query_one(StatusBar).enable_escape_button()
 
         try:
-            # self.ag.stream_tokens = False
             await self.ag.ask(question)
         except Exception as e:
             self.post_message(

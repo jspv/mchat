@@ -89,6 +89,10 @@ linux_computer:
     - - ai
       - "```shell\nlinux-terminal```"
 blank:
+  description: A blank agent
+  prompt: ""
+  extra_context: []
+blank_with_tools:
   description: A blank agent who can call tools.
   prompt: ""
   extra_context: []

@@ -103,6 +103,7 @@ class ModelConfigChatOpenAI(ModelConfig):
     _json_support: bool | None = True
     _system_prompt_support: bool | None = True
     _temperature_support: bool | None = None
+    _structured_output_support: bool | None = None
     _max_tokens: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
@@ -123,6 +124,7 @@ class ModelConfigChatAzure(ModelConfig):
     _json_support: bool | None = True
     _system_prompt_support: bool | None = True
     _temperature_support: bool | None = True
+    _structured_output_support: bool | None = None
     _max_tokens: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
@@ -212,6 +214,8 @@ class ModelManager:
         }
 
         # store the model configurations in the appropriate dataclasses
+        # result is a dictionary of model_id to model_config with model_config
+        # being the appropriate dataclass
         for model_type in self.model_configs.keys():
             for model_id, model_config in self.model_configs[model_type].items():
                 self.config[model_id] = model_types[model_type][
@@ -248,25 +252,19 @@ class ModelManager:
     @property
     def available_image_models(self) -> list:
         """Returns a list of available image models"""
-        if "image" not in self.model_configs:
-            return []
-        return [x for x in self.model_configs["image"].keys()]
+        return self.filter_models({"model_type": ["image"]})
 
     @property
     def available_chat_models(self) -> list:
         """Returns a list of available chat models"""
-        if "chat" not in self.model_configs:
-            return []
-        return [x for x in self.model_configs["chat"].keys()]
+        return self.filter_models({"model_type": ["chat"]})
 
     @property
     def available_embedding_models(self) -> list:
         """Returns a list of available embedding models"""
-        if "embedding" not in self.model_configs:
-            return []
-        return [x for x in self.model_configs["embedding"].keys()]
+        return self.filter_models({"model_type": ["embedding"]})
 
-    def filter_config(self, filter_dict):
+    def filter_models(self, filter_dict):
         """Filter the config list by provider and model.
 
         Args:
@@ -274,14 +272,35 @@ class ModelManager:
             field in each config, and values corresponding to lists of acceptable values
             for each key.
 
+        Example: filter_dict =
+        {"model_type": ["chat"], "_streaming_support":[True]}
+
         Returns:
             list: The filtered config list.
         """
         return [
             key
             for key, value in self.config.items()
-            if all(getattr(value, k) == v for k, v in filter_dict.items())
+            if all(getattr(value, k) in v for k, v in filter_dict.items())
         ]
+
+    def get_compatible_models(self, agent: str, agents: dict) -> list:
+        """Returns a list of models that are compatible with the agent"""
+
+        filter = {"model_type": ["chat"]}
+
+        # if agent doesn't specify a chat model, allow any chat model
+        model = agents[agent].get("model", self.default_chat_model)
+
+        # check if the agent needs tools
+        if "tools" in agents[agent]:
+            filter["_tool_support"] = [True]
+
+        # check if the agent needs system messages
+        if "prompt" in agents[agent] and agents[agent]["prompt"] != "":
+            filter["_system_prompt_support"] = [True]
+
+        return self.filter_models(filter)
 
     def get_streaming_support(self, model_id: str) -> bool:
         """Returns whether the model supports streaming, assume true"""
@@ -298,6 +317,10 @@ class ModelManager:
     def get_temperature_support(self, model_id: str) -> bool:
         """Returns whether the model supports temperature, assume true"""
         return self.config[model_id]._temperature_support
+
+    def get_structured_output_support(self, model_id: str) -> bool:
+        """Returns whether the model supports structured output, assume true"""
+        return self.config[model_id]._structured_output_support
 
     def open_model(
         self,
@@ -455,7 +478,7 @@ class AutogenManager(object):
             self.tools["generate_image"] = FunctionTool(
                 generate_image_tool.generate_image,
                 description=(
-                    "Generate an image from a prompt, it will return a url and a "
+                    "Generate an image from a prompt, it     will return a url and a "
                     "revised_prompt if the tool decided to enhance the prompt. Do not "
                     "alter the url in any way, and provide information back to the user "
                     "if the prompt was changed"
@@ -505,7 +528,14 @@ class AutogenManager(object):
 
     @property
     def stream_tokens(self) -> bool | None:
-        """Are we currently streaming tokens if they are supported"""
+        """Are we currently streaming tokens if they are supported
+
+        Returns:
+        -------
+        bool | None
+            True if currently streaming tokens, False if not, None if not supported
+        """
+
         return self._stream_tokens
 
     @stream_tokens.setter
@@ -525,27 +555,30 @@ class AutogenManager(object):
         # This remembers the last setting, so that if the model doesn't support
         # streaming, we know what to return to when switching to one that does
         self._streaming_preference = value
+        self._stream_tokens = value
+        self._set_streaming_callbacks()
 
-        # If the model doesn't support, set to None
-        if not self.mm.get_streaming_support(self._model_id):
-            self._stream_tokens = None
-            self.log(f"token streaming for {self._model_id} not supported")
-            return
+    def _set_streaming_callbacks(self) -> None:
+        """Reset the streaming callback for the agent"""
+
+        value = self._stream_tokens
 
         # if there is an agent, set token callback in the agent if the value is True
         if hasattr(self, "agent"):
             if value:
                 callback = partial(self._message_callback, agent=self.agent.name)
                 self.agent._token_callback = callback
-                self._stream_tokens = True
                 self.log(f"token streaming for {self.agent.name} enabled")
             else:
                 self.agent._token_callback = None
-                self._stream_tokens = False
                 self.log(f"token streaming for {self.agent.name} disabled")
         else:
-            self._stream_tokens = value
             self.log(f"token streaming for {self._model_id} set to disabled")
+
+    @property
+    def model(self) -> str:
+        """Returns the current model"""
+        return self._model_id
 
     def cancel(self) -> None:
         """Cancel the current conversation"""
@@ -566,7 +599,12 @@ class AutogenManager(object):
         await self.agent.load_state(state)
 
     async def new_conversation(
-        self, agent: str, model_id, temperature: float = 0.0, stream_tokens: bool = True
+        self,
+        agent: str,
+        model_id,
+        temperature: float = 0.0,
+        # TODO streaming should be a specified default, not hard coded
+        stream_tokens: bool = True,
     ) -> None:
         """Intialize a new conversation with the given agent and model
 
@@ -578,6 +616,8 @@ class AutogenManager(object):
             model  to use""
         temperature : float, optional
             model temperature setting, by default 0.0
+        stream_tokens: bool, optional
+            if the model should stream tokens back to the UI
         """
 
         """
@@ -682,8 +722,15 @@ class AutogenManager(object):
                     raise ValueError(f"Unknown extra context type {extra[0]}")
 
             # Set streaming to the current preference (if supported)
-            self._stream_tokens = self._streaming_preference
-            self.stream_tokens = self._streaming_preference
+
+            # disable streaming if not supported by the model, otherwse use preference
+            if not self.mm.get_streaming_support(model_id):
+                self._stream_tokens = None
+                self._set_streaming_callbacks()
+                self.log(f"token streaming for model {model_id} not supported")
+            else:
+                self._stream_tokens = self._streaming_preference
+                self._set_streaming_callbacks()
 
             # Build the termination conditions
             max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 10
@@ -815,12 +862,10 @@ class AutogenManager(object):
             async for response in agent_run(**kwargs):
                 # Ingore the autogen tool call summary messages that follow a
                 # tool call
-
                 if isinstance(response, ToolCallSummaryMessage):
                     self.log(f"ignoring tool call summary message: {response.content}")
                     continue
 
-                # if we're streaming, we don't need to show the TextMessage, we got the
                 if isinstance(response, TextMessage):
                     # ignore "user", it is a repeat of the user message
                     if response.source == "user":
@@ -879,12 +924,6 @@ class AutogenManager(object):
             cancellation_token=self._cancelation_token,
         )
         self._cancelation_token = None
-
-        # if there is only one agent in the team, just run the agent
-        # if len(self.agent_team._participants) == 1:
-        #     result = await team_run_stream(task=message, oneshot=True)
-        # else:
-        #     result = await team_run_stream(task=message)
         self.log(f"result: {result.stop_reason}")
 
 
