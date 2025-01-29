@@ -164,7 +164,7 @@ wheels = [
 
 [[package]]
 name = "autogen-agentchat"
-version = "0.4.3"
+version = "0.4.4"
 source = { editable = "../autogen/python/packages/autogen-agentchat" }
 dependencies = [
     { name = "autogen-core" },
@@ -175,7 +175,7 @@ requires-dist = [{ name = "autogen-core", editable = "../autogen/python/packages
 
 [[package]]
 name = "autogen-core"
-version = "0.4.3"
+version = "0.4.4"
 source = { editable = "../autogen/python/packages/autogen-core" }
 dependencies = [
     { name = "jsonref" },
@@ -191,7 +191,7 @@ requires-dist = [
     { name = "jsonref", specifier = "~=1.1.0" },
     { name = "opentelemetry-api", specifier = ">=1.27.0" },
     { name = "pillow", specifier = ">=11.0.0" },
-    { name = "protobuf", specifier = "~=4.25.1" },
+    { name = "protobuf", specifier = "~=5.29.3" },
     { name = "pydantic", specifier = ">=2.10.0,<3.0.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
 ]
@@ -206,6 +206,7 @@ dev = [
     { name = "azure-identity" },
     { name = "chess" },
     { name = "colorama" },
+    { name = "diskcache" },
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "llama-index" },
@@ -223,6 +224,7 @@ dev = [
     { name = "pydata-sphinx-theme", specifier = "==0.15.4" },
     { name = "pygments" },
     { name = "python-dotenv" },
+    { name = "redis" },
     { name = "requests" },
     { name = "sphinx" },
     { name = "sphinx-autobuild" },
@@ -244,7 +246,7 @@ dev = [
 
 [[package]]
 name = "autogen-ext"
-version = "0.4.3"
+version = "0.4.4"
 source = { editable = "../autogen/python/packages/autogen-ext" }
 dependencies = [
     { name = "autogen-core" },
@@ -252,6 +254,7 @@ dependencies = [
 
 [package.optional-dependencies]
 azure = [
+    { name = "azure-ai-inference" },
     { name = "azure-core" },
     { name = "azure-identity" },
 ]
@@ -264,16 +267,20 @@ requires-dist = [
     { name = "autogen-agentchat", marker = "extra == 'video-surfer'", editable = "../autogen/python/packages/autogen-agentchat" },
     { name = "autogen-agentchat", marker = "extra == 'web-surfer'", editable = "../autogen/python/packages/autogen-agentchat" },
     { name = "autogen-core", editable = "../autogen/python/packages/autogen-core" },
+    { name = "azure-ai-inference", marker = "extra == 'azure'", specifier = ">=1.0.0b7" },
     { name = "azure-core", marker = "extra == 'azure'" },
     { name = "azure-identity", marker = "extra == 'azure'" },
+    { name = "diskcache", marker = "extra == 'diskcache'", specifier = ">=5.6.3" },
     { name = "docker", marker = "extra == 'docker'", specifier = "~=7.0" },
     { name = "ffmpeg-python", marker = "extra == 'video-surfer'" },
     { name = "graphrag", marker = "extra == 'graphrag'", specifier = ">=1.0.1" },
-    { name = "grpcio", marker = "extra == 'grpc'", specifier = "~=1.62.0" },
+    { name = "grpcio", marker = "extra == 'grpc'", specifier = "~=1.70.0" },
+    { name = "ipykernel", marker = "extra == 'jupyter-executor'", specifier = ">=6.29.5" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = "~=0.3.3" },
     { name = "markitdown", marker = "extra == 'file-surfer'", specifier = ">=0.0.1a2" },
     { name = "markitdown", marker = "extra == 'magentic-one'", specifier = ">=0.0.1a2" },
     { name = "markitdown", marker = "extra == 'web-surfer'", specifier = ">=0.0.1a2" },
+    { name = "nbclient", marker = "extra == 'jupyter-executor'", specifier = ">=0.10.2" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.52.2" },
     { name = "openai-whisper", marker = "extra == 'video-surfer'" },
     { name = "opencv-python", marker = "extra == 'video-surfer'", specifier = ">=4.5" },
@@ -281,6 +288,19 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'web-surfer'", specifier = ">=11.0.0" },
     { name = "playwright", marker = "extra == 'magentic-one'", specifier = ">=1.48.0" },
     { name = "playwright", marker = "extra == 'web-surfer'", specifier = ">=1.48.0" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1" },
+    { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
+    { name = "semantic-kernel", marker = "extra == 'semantic-kernel-core'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["anthropic"], marker = "extra == 'semantic-kernel-anthropic'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["aws"], marker = "extra == 'semantic-kernel-aws'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["dapr"], marker = "extra == 'semantic-kernel-dapr'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["google"], marker = "extra == 'semantic-kernel-google'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["google", "hugging-face", "mistralai", "ollama", "onnx", "anthropic", "usearch", "pandas", "aws", "dapr"], marker = "extra == 'semantic-kernel-all'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["hugging-face"], marker = "extra == 'semantic-kernel-hugging-face'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["mistralai"], marker = "extra == 'semantic-kernel-mistralai'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["ollama"], marker = "extra == 'semantic-kernel-ollama'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["onnx"], marker = "extra == 'semantic-kernel-onnx'", specifier = ">=1.17.1" },
+    { name = "semantic-kernel", extras = ["pandas"], marker = "extra == 'semantic-kernel-pandas'", specifier = ">=1.17.1" },
     { name = "tiktoken", marker = "extra == 'openai'", specifier = ">=0.8.0" },
 ]
 
@@ -289,6 +309,20 @@ dev = [
     { name = "autogen-test-utils", editable = "../autogen/python/packages/autogen-test-utils" },
     { name = "langchain-experimental" },
     { name = "pandas-stubs", specifier = ">=2.2.3.241126" },
+]
+
+[[package]]
+name = "azure-ai-inference"
+version = "1.0.0b7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "isodate" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/37/233eee0bebbf631d2f911a9f1ebbc3784b100d9bfb84efc275e71c1ea636/azure_ai_inference-1.0.0b7.tar.gz", hash = "sha256:bd912f71f7f855036ca46c9a21439f290eed5e61da418fd26bbb32e3c68bcce3", size = 175883 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/b6/5ba830eddc59f820c654694d476c14a3dd9c1f828ff9b48eb8b21dfd5f01/azure_ai_inference-1.0.0b7-py3-none-any.whl", hash = "sha256:59bb6a9ee62bd7654a69ca2bf12fe9335d7045df95b491cb8b5f9e3791c86175", size = 123030 },
 ]
 
 [[package]]
@@ -647,6 +681,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892 },
+]
+
+[[package]]
+name = "isodate"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/4d/e940025e2ce31a8ce1202635910747e5a87cc3a6a6bb2d00973375014749/isodate-0.7.2.tar.gz", hash = "sha256:4cd1aa0f43ca76f4a6c6c0292a85f40b35ec2e43e315b59f06e6d32171a953e6", size = 29705 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/aa/0aca39a37d3c7eb941ba736ede56d689e7be91cab5d9ca846bde3999eba6/isodate-0.7.2-py3-none-any.whl", hash = "sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15", size = 22320 },
 ]
 
 [[package]]
@@ -1154,16 +1197,16 @@ wheels = [
 
 [[package]]
 name = "protobuf"
-version = "4.25.5"
+version = "5.29.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/67/dd/48d5fdb68ec74d70fabcc252e434492e56f70944d9f17b6a15e3746d2295/protobuf-4.25.5.tar.gz", hash = "sha256:7f8249476b4a9473645db7f8ab42b02fe1488cbe5fb72fddd445e0665afd8584", size = 380315 }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/d1/e0a911544ca9993e0f17ce6d3cc0932752356c1b0a834397f28e63479344/protobuf-5.29.3.tar.gz", hash = "sha256:5da0f41edaf117bde316404bad1a486cb4ededf8e4a54891296f648e8e076620", size = 424945 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/35/1b3c5a5e6107859c4ca902f4fbb762e48599b78129a05d20684fef4a4d04/protobuf-4.25.5-cp310-abi3-win32.whl", hash = "sha256:5e61fd921603f58d2f5acb2806a929b4675f8874ff5f330b7d6f7e2e784bbcd8", size = 392457 },
-    { url = "https://files.pythonhosted.org/packages/a7/ad/bf3f358e90b7e70bf7fb520702cb15307ef268262292d3bdb16ad8ebc815/protobuf-4.25.5-cp310-abi3-win_amd64.whl", hash = "sha256:4be0571adcbe712b282a330c6e89eae24281344429ae95c6d85e79e84780f5ea", size = 413449 },
-    { url = "https://files.pythonhosted.org/packages/51/49/d110f0a43beb365758a252203c43eaaad169fe7749da918869a8c991f726/protobuf-4.25.5-cp37-abi3-macosx_10_9_universal2.whl", hash = "sha256:b2fde3d805354df675ea4c7c6338c1aecd254dfc9925e88c6d31a2bcb97eb173", size = 394248 },
-    { url = "https://files.pythonhosted.org/packages/c6/ab/0f384ca0bc6054b1a7b6009000ab75d28a5506e4459378b81280ae7fd358/protobuf-4.25.5-cp37-abi3-manylinux2014_aarch64.whl", hash = "sha256:919ad92d9b0310070f8356c24b855c98df2b8bd207ebc1c0c6fcc9ab1e007f3d", size = 293717 },
-    { url = "https://files.pythonhosted.org/packages/05/a6/094a2640be576d760baa34c902dcb8199d89bce9ed7dd7a6af74dcbbd62d/protobuf-4.25.5-cp37-abi3-manylinux2014_x86_64.whl", hash = "sha256:fe14e16c22be926d3abfcb500e60cab068baf10b542b8c858fa27e098123e331", size = 294635 },
-    { url = "https://files.pythonhosted.org/packages/33/90/f198a61df8381fb43ae0fe81b3d2718e8dcc51ae8502c7657ab9381fbc4f/protobuf-4.25.5-py3-none-any.whl", hash = "sha256:0aebecb809cae990f8129ada5ca273d9d670b76d9bfc9b1809f0a9c02b7dbf41", size = 156467 },
+    { url = "https://files.pythonhosted.org/packages/dc/7a/1e38f3cafa022f477ca0f57a1f49962f21ad25850c3ca0acd3b9d0091518/protobuf-5.29.3-cp310-abi3-win32.whl", hash = "sha256:3ea51771449e1035f26069c4c7fd51fba990d07bc55ba80701c78f886bf9c888", size = 422708 },
+    { url = "https://files.pythonhosted.org/packages/61/fa/aae8e10512b83de633f2646506a6d835b151edf4b30d18d73afd01447253/protobuf-5.29.3-cp310-abi3-win_amd64.whl", hash = "sha256:a4fa6f80816a9a0678429e84973f2f98cbc218cca434abe8db2ad0bffc98503a", size = 434508 },
+    { url = "https://files.pythonhosted.org/packages/dd/04/3eaedc2ba17a088961d0e3bd396eac764450f431621b58a04ce898acd126/protobuf-5.29.3-cp38-abi3-macosx_10_9_universal2.whl", hash = "sha256:a8434404bbf139aa9e1300dbf989667a83d42ddda9153d8ab76e0d5dcaca484e", size = 417825 },
+    { url = "https://files.pythonhosted.org/packages/4f/06/7c467744d23c3979ce250397e26d8ad8eeb2bea7b18ca12ad58313c1b8d5/protobuf-5.29.3-cp38-abi3-manylinux2014_aarch64.whl", hash = "sha256:daaf63f70f25e8689c072cfad4334ca0ac1d1e05a92fc15c54eb9cf23c3efd84", size = 319573 },
+    { url = "https://files.pythonhosted.org/packages/a8/45/2ebbde52ad2be18d3675b6bee50e68cd73c9e0654de77d595540b5129df8/protobuf-5.29.3-cp38-abi3-manylinux2014_x86_64.whl", hash = "sha256:c027e08a08be10b67c06bf2370b99c811c466398c357e615ca88c91c07f0910f", size = 319672 },
+    { url = "https://files.pythonhosted.org/packages/fd/b2/ab07b09e0f6d143dfb839693aa05765257bceaa13d03bf1a696b78323e7a/protobuf-5.29.3-py3-none-any.whl", hash = "sha256:0a18ed4a24198528f2333802eb075e59dea9d679ab7a6c5efb017a59004d849f", size = 172550 },
 ]
 
 [[package]]

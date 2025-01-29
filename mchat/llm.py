@@ -20,6 +20,7 @@ from autogen_agentchat.conditions import (
     TextMentionTermination,
 )
 from autogen_agentchat.messages import (
+    ModelClientStreamingChunkEvent,
     MultiModalMessage,
     TextMessage,
     ToolCallExecutionEvent,
@@ -556,24 +557,31 @@ class AutogenManager(object):
         # streaming, we know what to return to when switching to one that does
         self._streaming_preference = value
         self._stream_tokens = value
-        self._set_streaming_callbacks()
+        self._set_agent_streaming()
 
-    def _set_streaming_callbacks(self) -> None:
+    def _set_agent_streaming(self) -> None:
         """Reset the streaming callback for the agent"""
 
         value = self._stream_tokens
 
-        # if there is an agent, set token callback in the agent if the value is True
         if hasattr(self, "agent"):
-            if value:
-                callback = partial(self._message_callback, agent=self.agent.name)
-                self.agent._token_callback = callback
-                self.log(f"token streaming for {self.agent.name} enabled")
-            else:
-                self.agent._token_callback = None
-                self.log(f"token streaming for {self.agent.name} disabled")
+            # HACK TODO - this needs to becone a public toggle
+            self.agent._model_client_stream = value
+            self.log(f"token streaming for {self.agent.name} set to {value}")
         else:
-            self.log(f"token streaming for {self._model_id} set to disabled")
+            raise ValueError("stream_tokens can only be set if there is an agent")
+
+        # # if there is an agent, set token callback in the agent if the value is True
+        # if hasattr(self, "agent"):
+        #     if value:
+        #         callback = partial(self._message_callback, agent=self.agent.name)
+        #         self.agent._token_callback = callback
+        #         self.log(f"token streaming for {self.agent.name} enabled")
+        #     else:
+        #         self.agent._token_callback = None
+        #         self.log(f"token streaming for {self.agent.name} disabled")
+        # else:
+        #     self.log(f"token streaming for {self._model_id} set to disabled")
 
     @property
     def model(self) -> str:
@@ -700,7 +708,8 @@ class AutogenManager(object):
                     model_client=self.model_client,
                     tools=tools,
                     system_message=system_message,
-                    token_callback=callback,
+                    model_client_stream=True,
+                    # token_callback=callback,
                     reflect_on_tool_use=True,
                 )
 
@@ -726,11 +735,11 @@ class AutogenManager(object):
             # disable streaming if not supported by the model, otherwse use preference
             if not self.mm.get_streaming_support(model_id):
                 self._stream_tokens = None
-                self._set_streaming_callbacks()
+                self._set_agent_streaming()
                 self.log(f"token streaming for model {model_id} not supported")
             else:
                 self._stream_tokens = self._streaming_preference
-                self._set_streaming_callbacks()
+                self._set_agent_streaming()
 
             # Build the termination conditions
             max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 10
@@ -864,6 +873,12 @@ class AutogenManager(object):
                 # tool call
                 if isinstance(response, ToolCallSummaryMessage):
                     self.log(f"ignoring tool call summary message: {response.content}")
+                    continue
+
+                if isinstance(response, ModelClientStreamingChunkEvent):
+                    await self._message_callback(
+                        response.content, agent=response.source, complete=False
+                    )
                     continue
 
                 if isinstance(response, TextMessage):
