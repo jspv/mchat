@@ -609,7 +609,7 @@ class AutogenManager(object):
     async def new_conversation(
         self,
         agent: str,
-        model_id,
+        model_id: str,
         temperature: float = 0.0,
         # TODO streaming should be a specified default, not hard coded
         stream_tokens: bool = True,
@@ -621,7 +621,7 @@ class AutogenManager(object):
         agent : dict
             agent object
         model_id: str
-            model  to use""
+            model to use""
         temperature : float, optional
             model temperature setting, by default 0.0
         stream_tokens: bool, optional
@@ -696,7 +696,7 @@ class AutogenManager(object):
                         name=agent,
                         # token_callback=callback,
                     )
-                    # not streaming autogen agents right now
+                    # not streaming builtin autogen agents right now
                     self.log(f"token streaming agent:{agent} disabled or not supported")
                     self._stream_tokens = None
 

@@ -12,6 +12,7 @@ default:
     - generate_image
     - today
     - get_location
+
 financial_expert:
   type: agent
   description: A financial manager familiar with analysis and investing
@@ -25,6 +26,7 @@ financial_expert:
   extra_context: []
   tools:
     - google_search
+
 image_composer:
   type: agent
   description: An image composer that can generate detailed prompts for images
@@ -74,6 +76,7 @@ image_composer:
         warily, the tension in the cage palpable. Their muscles are tensed, their gazes
         locked. The spectators hold their breath, waiting for the first move in this
         unlikely and dramatic cage match.
+
 linux_computer:
   type: agent
   description: A Linux terminal
@@ -88,10 +91,12 @@ linux_computer:
       - hostname
     - - ai
       - "```shell\nlinux-terminal```"
+
 blank:
   description: A blank agent
   prompt: ""
   extra_context: []
+
 blank_with_tools:
   description: A blank agent who can call tools.
   prompt: ""

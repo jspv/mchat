@@ -157,6 +157,7 @@ class ChatApp(App):
             self.image_model_name = None
             self.image_model = None
 
+        self.ready = False
         # The conversation is initialized in the on_mount method
 
     def _reinitialize_image_model(self):
@@ -199,11 +200,6 @@ class ChatApp(App):
             value=self.default_agent,
         )
 
-        # load the models and select the default
-        self.query_one(StatusBar).load_models(
-            [(model, model) for model in self.available_llm_models]
-        )
-
         await self.set_agent(
             self.default_agent, self.llm_model_name, self.llm_temperature
         )
@@ -214,6 +210,8 @@ class ChatApp(App):
 
         # Load the active conversation record
         self.record = self.query_one(HistoryContainer).active_record
+
+        self.ready = True
 
     async def on_ready(self) -> None:
         """Called  when the DOM is ready."""
@@ -231,6 +229,7 @@ class ChatApp(App):
         await debug_pane.add_entry(
             "question", "Question", lambda: self._current_question, collapsed=True
         )
+
         await debug_pane.add_entry(
             "description",
             "Description",
@@ -248,6 +247,7 @@ class ChatApp(App):
             self.ag.get_memory,
             collapsed=True,
         )
+
         # debug_pane.add_entry(
         #     "summary_buffer",
         #     "Summary Buffer",
@@ -323,20 +323,21 @@ class ChatApp(App):
             )
             self.post_message(self.EndChatTurn(role="meta"))
 
-    # @on(StatusBar.ModelChangedMessage)
-    # async def change_model(self, message: StatusBar.ModelChangedMessage) -> None:
-    #     model = message.model
-    #     if model and model != self.ag.model:
-    #         await self.set_agent(self.current_agent, model_name=model)
+    @on(StatusBar.ModelChangedMessage)
+    async def change_model(self, message: StatusBar.ModelChangedMessage) -> None:
+        """Change the model to the on selected in the status bar."""
+        model = message.model
+        if model and model != self.llm_model_name:
+            await self.set_model(message.model)
 
-    #         self.post_message(
-    #             self.AddToChatMessage(
-    #                 role="assistant",
-    #                 message=f"Model set to {self.ag.model}",
-    #                 agent_name="meta",
-    #             )
-    #         )
-    #         self.post_message(self.EndChatTurn(role="meta"))
+            self.post_message(
+                self.AddToChatMessage(
+                    role="assistant",
+                    message=f"Model set to {self.ag.model}",
+                    agent_name="meta",
+                )
+            )
+            self.post_message(self.EndChatTurn(role="meta"))
 
     @on(StatusBar.EndButtonPressedMessage)
     async def end_button_pressed(
@@ -362,44 +363,51 @@ class ChatApp(App):
         self,
         agent: str,
         model_name: str = "",
-        # TODO fix hardcoding of temperature
-        temperature: float = 0.0,
+        temperature: float | None = None,
         model_context: dict | None = None,
+        update_ui: bool = False,
     ) -> None:
-        """Change the agent"""
+        """Change the agent, updating the model to a compatible one if needed."""
         if not agent:
             return
         if agent not in self.agents:
             raise ValueError(f"agent '{agent}' not found")
-        self.current_agent = agent
 
-        if model_name == "":
-            model_name = self.agents[agent].get("model", self.mm.default_chat_model)
+        # determine the model to use; if the agent defines a model, use it
+        # otherwise try to use the current one, lastly use the default
 
         compatible_models = self.mm.get_compatible_models(agent, self.agents)
-        if model_name not in compatible_models:
-            raise ValueError(
-                f"model '{model_name}' not compatible with agent '{agent}'"
-            )
+        if not model_name:
+            if self.agents[agent].get("model", None) is not None:
+                model_name = self.agents[agent]["model"]
+            elif self.llm_model_name in compatible_models:
+                model_name = self.llm_model_name
+            else:
+                model_name = self.mm.default_chat_model
+
+        if temperature is None:
+            temperature = self.llm_temperature
 
         self.conversation = await self.ag.new_conversation(
             agent=agent, model_id=model_name, temperature=temperature
         )
 
-        # load compatable models
-        self.query_one(StatusBar).load_models(
-            [(model, model) for model in compatible_models]
-        )
+        # if it is a new agent, load compatable models into statusbar
+        if agent != getattr(self, "current_agent", None):
+            self.query_one(StatusBar).load_models(
+                [(model, model) for model in compatible_models],
+                value=model_name,
+            )
 
+        # update the memory with the model context
         if model_context:
             await self.ag.update_memory(model_context)
 
+        # TODO rename llm_model_name to current_model
+        self.current_agent = agent
+        self.llm_model_name = model_name
+        self.llm_temperature = temperature
         self._current_question = ""
-
-        # update the agent in the status bar if needed
-        # (e.g. if the agent was set by command)
-        if self.query_one(StatusBar).agent != agent:
-            self.query_one(StatusBar).agent = agent
 
         # if setting streaming is supported, enable the streaming selector
         if self.ag.stream_tokens is not None:
@@ -408,13 +416,76 @@ class ChatApp(App):
         else:
             self.query_one(StatusBar).disable_stream_selector()
 
-        # show the current model
-        self.query_one(StatusBar).model = self.ag.model
+        # update the agent in the status bar if needed
+        # (e.g. if the agent was set by command)
+        if update_ui and self.query_one(StatusBar).agent != agent:
+            self.query_one(StatusBar).agent = agent
+
+        # show the current model if not already set
+        if update_ui and self.query_one(StatusBar).model != model_name:
+            self.query_one(StatusBar).model = model_name
 
         self.log.debug(f"Agent set to {agent}")
         self.log.debug(f"Model set to {self.ag.model}")
 
         debug_pane = self.query_one(DebugPane)
+        # debug_pane.update_status()
+        # debug_pane.update_entry(
+        #     "summary_buffer",
+        #     lambda: self.memory.moving_summary_buffer,
+        # )
+
+        await debug_pane.update_status()
+
+    async def set_model(
+        self,
+        model_name: str,
+        temperature: float | None = None,
+        model_context: dict | None = None,
+        update_ui: bool = False,
+    ) -> None:
+        """Change the model"""
+        if model_name not in self.available_llm_models:
+            raise ValueError(f"model '{model_name}' not found")
+
+        compatible_models = self.mm.get_compatible_models(
+            self.current_agent, self.agents
+        )
+        if model_name not in compatible_models:
+            raise ValueError(
+                f"model '{model_name}' not compatible with agent '{self.current_agent}'"
+            )
+
+        if temperature is None:
+            temperature = self.llm_temperature
+
+        self.conversation = await self.ag.new_conversation(
+            agent=self.current_agent,
+            model_id=model_name,
+            temperature=temperature,
+        )
+
+        self.llm_model_name = model_name
+        self.llm_temperature = temperature
+
+        # update the memory with the model context
+        if model_context:
+            await self.ag.update_memory(model_context)
+
+        # if setting streaming is supported, enable the streaming selector
+        if self.ag.stream_tokens is not None:
+            self.query_one(StatusBar).enable_stream_selector()
+            self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
+        else:
+            self.query_one(StatusBar).disable_stream_selector()
+
+        if update_ui:
+            self.query_one(StatusBar).model = model_name
+
+        self.log.debug(f"Model set to {model_name}")
+
+        debug_pane = self.query_one(DebugPane)
+        # debug_pane.update_status()
         # debug_pane.update_entry(
         #     "summary_buffer",
         #     lambda: self.memory.moving_summary_buffer,
@@ -598,7 +669,7 @@ class ChatApp(App):
                 )
                 self.post_message(self.EndChatTurn(role="meta"))
                 return
-            await self.set_agent(agent=agent)
+            await self.set_agent(agent=agent, update_ui=True)
             self.post_message(
                 self.AddToChatMessage(
                     role="assistant",
@@ -662,7 +733,7 @@ class ChatApp(App):
                 self.llm_model_name = model_name
                 self.log.debug(f"switching to llm model {model_name}")
                 try:
-                    await self.set_agent(self.current_agent, model_name=model_name)
+                    await self.set_model(model_name=model_name, update_ui=True)
                 except ValueError as e:
                     self.post_message(
                         self.AddToChatMessage(
@@ -736,7 +807,6 @@ class ChatApp(App):
                 )
             )
             self._current_question = question
-            # self._reinitialize_llm_model()
             await self.set_agent(self.current_agent)
             self.post_message(self.EndChatTurn(role="assistant", agent_name="meta"))
             return
@@ -1017,13 +1087,17 @@ class ChatApp(App):
             await self.set_agent(self.default_agent)
         else:
             # load the parameters from the last turn and reinitialize
-            self.current_agent = self.record.turns[-1].agent
-            self.llm_model_name = self.record.turns[-1].model
-            self.llm_temperature = self.record.turns[-1].temperature
-            self._current_question = self.record.turns[-1].prompt
+            # self.current_agent = self.record.turns[-1].agent
+            # self.llm_model_name = self.record.turns[-1].model
+            # self.llm_temperature = self.record.turns[-1].temperature
             await self.set_agent(
-                self.current_agent, model_context=self.record.turns[-1].memory_messages
+                self.record.turns[-1].agent,
+                model=self.record.turns[-1].model,
+                temperature=self.record.turns[-1].temperature,
+                model_context=self.record.turns[-1].memory_messages,
             )
+            self._current_question = self.record.turns[-1].prompt
+
             # await self._reinitialize_llm_model(self.record.turns[-1].memory_messages)
 
         # clear the chatboxes from the chat container

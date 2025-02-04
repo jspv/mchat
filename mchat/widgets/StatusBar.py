@@ -54,7 +54,8 @@ class StatusBar(Widget):
         self, models: List[Tuple[str, str]], value: str | None = None
     ) -> None:
         """Load the agents into the agent selector widget"""
-        self.model_selector.set_options(options=models)
+        with self.prevent(Select.Changed):
+            self.model_selector.set_options(options=models)
         if value is not None:
             self.model_selector.value = value
 
@@ -124,10 +125,6 @@ class StatusBar(Widget):
     def disable_model_selector(self) -> None:
         """Disable the model selector"""
         self.model_selector.disabled = True
-
-    def set_model(self, value: str) -> None:
-        """Set the model selector value"""
-        self.model_selector.value = value
 
     @on(Select.Changed, "#agent_selector")
     def agent_changed(self, event) -> None:

@@ -17,7 +17,7 @@ dependencies = [
     "autogen-agentchat",
     "apsw>=3.47.2.0",
     "beautifulsoup4>=4.12.3",
-    "autogen-ext[azure]",
+    "autogen-ext[azure,openai]",
     "click>=8.1.7",
     "pypdf2>=3.0.1",
     "aiofiles>=24.1.0",
