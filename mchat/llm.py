@@ -45,6 +45,7 @@ from pydantic.networks import HttpUrl
 
 from config import settings
 
+from .tools._fred import fetch_fred_data
 from .tools._generate_image import OpenAIImageAPIWrapper
 from .tools._up_to_date import get_location, today
 from .tools._web_search import google_search
@@ -471,6 +472,12 @@ class AutogenManager(object):
             today,
             description=("Call this to get the current date, time, and timezone"),
         )
+        self.tools["fetch_fred_data"] = FunctionTool(
+            fetch_fred_data,
+            description=(
+                "Call this to get data from the Federal Reserve Economic Data API"
+            ),
+        )
         # generate_image tool - need to give the API key to the OpenAIImageAPIWrapper
         if settings.get("openai_api_key"):
             generate_image_tool = OpenAIImageAPIWrapper(
@@ -679,9 +686,6 @@ class AutogenManager(object):
                     if tool in self.tools
                 ]
 
-            # wrap the callback in a partial to pass the agent name
-            callback = partial(self._message_callback, agent=agent)
-
             # Don't use system messages if not supported
             if self.mm.get_system_prompt_support(model_id):
                 system_message = self._prompt
@@ -694,7 +698,6 @@ class AutogenManager(object):
                     self.agent = MultimodalWebSurfer(
                         model_client=self.model_client,
                         name=agent,
-                        # token_callback=callback,
                     )
                     # not streaming builtin autogen agents right now
                     self.log(f"token streaming agent:{agent} disabled or not supported")
@@ -709,7 +712,6 @@ class AutogenManager(object):
                     tools=tools,
                     system_message=system_message,
                     model_client_stream=True,
-                    # token_callback=callback,
                     reflect_on_tool_use=True,
                 )
 

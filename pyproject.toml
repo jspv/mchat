@@ -24,6 +24,7 @@ dependencies = [
     "playwright>=1.49.1",
     "pytest-playwright>=0.6.2",
     "tzlocal>=5.2",
+    "fredapi>=0.5.2",
 ]
 
 [dependency-groups]

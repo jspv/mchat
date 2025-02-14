@@ -12,6 +12,7 @@ default:
     - generate_image
     - today
     - get_location
+    - fetch_fred_data
 
 financial_expert:
   type: agent
