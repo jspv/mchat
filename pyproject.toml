@@ -25,6 +25,7 @@ dependencies = [
     "pytest-playwright>=0.6.2",
     "tzlocal>=5.2",
     "fredapi>=0.5.2",
+    "nicegui>=2.11.1",
 ]
 
 [dependency-groups]

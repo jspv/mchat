@@ -18,6 +18,7 @@ from textual_dominfo import DOMInfo
 
 from config import settings
 from mchat.llm import AutogenManager, LLMTools, ModelManager
+from mchat.mchatweb import WebChatApp
 from mchat.widgets.ChatTurn import ChatTurn
 from mchat.widgets.DebugPane import DebugPane
 from mchat.widgets.Dialog import Dialog
@@ -1092,7 +1093,8 @@ def run():
     app.run()
 
 
-app = ChatApp()
+app = WebChatApp()
+# app = ChatApp()
 
-if __name__ == "__main__":
+if __name__ in {"__main__", "__mp_main__"}:
     run()
