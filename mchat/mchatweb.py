@@ -42,7 +42,8 @@ class ChatTurn(object):
             self.response_chat.visible = True
         with self.response_chat:
             ui.markdown(
-                self.response, extras=["fenced-code-blocks", "tables", "code-friendly"]
+                self.response,
+                extras=["fenced-code-blocks", "tables", "code-friendly", "latex"],
             )
 
         # force scroll to the bottom
@@ -64,7 +65,7 @@ class WebChatApp:
     def run(self):
         # callbacks don't propogate excecptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
-        ui.run()
+        ui.run(port=8881)
 
     async def on_llm_new_token(self, token: str, **kwargs):
         """Callback for new tokens from the autogen manager"""
@@ -598,6 +599,7 @@ class WebChatApp:
                 # self.current_agent = self.record.turns[-1].agent
                 # self.llm_model_name = self.record.turns[-1].model
                 # self.llm_temperature = self.record.turns[-1].temperature
+                print(record)
                 await self.set_agent_and_model(
                     agent=self.record.turns[-1].agent,
                     model=self.record.turns[-1].model,
@@ -674,8 +676,8 @@ class WebChatApp:
         if temperature is None:
             temperature = self.llm_temperature
 
-        # if model_context == "preserve":
-        #     model_context = await self.ag.get_memory()
+        if model_context == "preserve":
+            model_context = await self.ag.get_memory()
 
         self.conversation = await self.ag.new_conversation(
             agent=agent, model_id=model, temperature=temperature
@@ -694,8 +696,8 @@ class WebChatApp:
         self.llm_temperature = temperature
 
         # update the memory with the model context
-        # if model_context:
-        #     await self.ag.update_memory(model_context)
+        if model_context:
+            await self.ag.update_memory(model_context)
 
         self._current_question = ""
 

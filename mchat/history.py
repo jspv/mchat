@@ -259,7 +259,6 @@ class HistoryContainer:
     async def delete_history_box(self, session_box: HistorySessionBox) -> None:
         """Delete a HistorySessionBox from the HistoryContainer"""
         # check to see if this is the last session
-        ui.notify(f"count {self.session_count}")
         if self.session_count == 1:
             session_box.delete()
             await self.delete_conversation(session_box.record)
