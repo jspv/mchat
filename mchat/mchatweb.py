@@ -10,6 +10,7 @@ from nicegui import app, events, ui
 from config import settings
 from mchat.history import HistoryContainer
 from mchat.llm import AutogenManager, ModelManager
+from mchat.styles import custom_styles
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
@@ -65,7 +66,7 @@ class WebChatApp:
     def run(self):
         # callbacks don't propogate excecptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
-        ui.run(port=8881)
+        ui.run(port=8881, title="MChat - Mulit-Model Chat Framework", dark=True)
 
     async def on_llm_new_token(self, token: str, **kwargs):
         """Callback for new tokens from the autogen manager"""
@@ -500,12 +501,23 @@ class WebChatApp:
 
         # Define the main UI layout
 
-        @ui.page("/", dark=False)
+        @ui.page("/")
         def main_ui():
             # the queries below are used to expand the contend down to the footer
             # (content can then use flex-grow to expand)
             ui.query(".q-page").classes("flex")
             ui.query(".nicegui-content").classes("w-full")
+            dark_mode = ui.dark_mode(True)
+            ui.colors(
+                secondary="#26A69A",
+                accent="#dd4b39",
+                dark="#1D1D1D",
+                positive="#21BA45",
+                negative="#C10015",
+                info="#31CCEC",
+                warning="#F2C037",
+                primary="rgba(15, 23, 42, 0.89)",
+            )
 
             # message_container = ui.scroll_area().classes(
             #     # "w-full max-w-2xl mx-auto flex-grow items-stretch"
@@ -516,13 +528,17 @@ class WebChatApp:
             )
 
             # Header
-            with (
-                ui.header(elevated=True)
-                .style("background-color: #3874c8")
-                .classes("items-center justify-between")
+            with ui.header(elevated=True).classes(
+                "flex items-center justify-between bg-dark"
             ):
-                ui.label("HEADER")
-                ui.button(on_click=lambda: right_drawer.toggle(), icon="menu").props(
+                ui.label("MChat")
+                ui.switch("dark mode").bind_value(dark_mode).props(
+                    "color=secondary"
+                ).classes("ml-auto")
+                ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
+                    "flat color=white"
+                )
+                ui.button(on_click=lambda: ui.notify("Close"), icon="close").props(
                     "flat color=white"
                 )
 
@@ -537,14 +553,16 @@ class WebChatApp:
 
             # Right Drawer Debug Pane
             with (
-                ui.right_drawer(value=False, fixed=True)
-                .style("background-color: #ebf1fa")
-                .props("bordered") as right_drawer
+                ui.right_drawer(value=False, fixed=True).props(
+                    "bordered"
+                ) as right_drawer
+                # .style("background-color: #ebf1fa")
             ):
                 ui.label("DEBUG")
 
             # Footer and Input Area
-            with ui.footer().style("background-color: #3874c8"):
+            # with ui.footer().style("background-color: #3874c8"):
+            with ui.footer():
                 with ui.row().classes("w-full no-wrap items-center"):
                     placeholder = "Type your question here"
                     with ui.textarea(placeholder=placeholder) as text:
@@ -584,6 +602,7 @@ class WebChatApp:
         if action == "load":
             self.record = record
             self.history_container.active_session = box
+            self.history_container.active_session.active = True
 
             # if there are no turns in the record, it's a new session
             if len(self.record.turns) == 0:
@@ -599,7 +618,6 @@ class WebChatApp:
                 # self.current_agent = self.record.turns[-1].agent
                 # self.llm_model_name = self.record.turns[-1].model
                 # self.llm_temperature = self.record.turns[-1].temperature
-                print(record)
                 await self.set_agent_and_model(
                     agent=self.record.turns[-1].agent,
                     model=self.record.turns[-1].model,
