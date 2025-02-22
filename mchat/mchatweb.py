@@ -6,11 +6,11 @@ from typing import Literal
 
 import yaml
 from nicegui import app, events, ui
+from pygments.formatters import HtmlFormatter
 
 from config import settings
 from mchat.history import HistoryContainer
 from mchat.llm import AutogenManager, ModelManager
-from mchat.styles import custom_styles
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
@@ -31,7 +31,8 @@ class ChatTurn(object):
 
         with self.container:
             if question and role == "user":
-                ui.chat_message(text=question, name="You", sent=True)
+                with ui.chat_message(name="You", sent=True):
+                    ui.markdown(question)
             self.response_chat = ui.chat_message(name=self.agent, sent=False)
             # this keeps the label invisible until we get content
             self.response_chat.visible = False
@@ -519,10 +520,11 @@ class WebChatApp:
                 primary="rgba(15, 23, 42, 0.89)",
             )
 
-            # message_container = ui.scroll_area().classes(
-            #     # "w-full max-w-2xl mx-auto flex-grow items-stretch"
-            #     "items-stretch"
-            # )
+            # Below allows code blocks in markdown to look nice
+            ui.add_head_html(
+                f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'
+            )
+
             self._message_container = ui.element("div").classes(
                 "w-full max-w-4xl mx-auto flex-grow items-stretch"
             )
@@ -546,7 +548,7 @@ class WebChatApp:
             # populate the history container
 
             self.history_container = HistoryContainer(
-                callback=self.history_box_clicked, new_label="New Session"
+                new_record_callback=self.load_record, new_label="New Session"
             )
             # Load the active conversation record
             self.record = self.history_container.active_record
@@ -575,7 +577,7 @@ class WebChatApp:
                                 question = text.value
                                 text.value = ""
                                 with self._message_container:
-                                    self._spinner = ui.spinner()
+                                    self._spinner = ui.spinner(color="secondary")
                                     await self.add_to_chat_message(
                                         role="user", message=question
                                     )
@@ -591,65 +593,45 @@ class WebChatApp:
                         # text.on("keydown.enter", send)
                         text.on("keydown.enter", _enter)
 
-    async def history_box_clicked(self, click_args: dict):
-        """Callback for when a history session is clicked"""
-        action = click_args["action"]
-        box = click_args["box"]
-        record = click_args["record"]
+    async def load_record(self, record):
+        """Load a record into the chat, called from the history container"""
+        self.record = record
 
-        assert action in ["load", "delete", "copy"]
+        # if there are no turns in the record, it's a new session
+        if len(self.record.turns) == 0:
+            self._current_question = ""
+            self.ag.clear_memory()
+            await self.set_agent_and_model(
+                agent=self.default_agent,
+                model=self.mm.default_chat_model,
+                update_ui=True,
+            )
+        else:
+            # load the parameters from the last turn and reinitialize
+            await self.set_agent_and_model(
+                agent=self.record.turns[-1].agent,
+                model=self.record.turns[-1].model,
+                temperature=self.record.turns[-1].temperature,
+                model_context=self.record.turns[-1].memory_messages,
+                update_ui=True,
+            )
+            self._current_question = self.record.turns[-1].prompt
 
-        if action == "load":
-            self.record = record
-            self.history_container.active_session = box
-            self.history_container.active_session.active = True
+        # clear the chatboxes from the chat container
+        self._message_container.clear()
 
-            # if there are no turns in the record, it's a new session
-            if len(self.record.turns) == 0:
-                self._current_question = ""
-                self.ag.clear_memory()
-                await self.set_agent_and_model(
-                    agent=self.default_agent,
-                    model=self.mm.default_chat_model,
-                    update_ui=True,
+        # load the chat history from the record
+        for turn in self.record.turns:
+            await self.add_to_chat_message(role="user", message=turn.prompt)
+            await self.end_chat_turn(role="meta")
+
+            for response in turn.responses:
+                await self.add_to_chat_message(
+                    role="assistant_historical",
+                    message=response["response"],
+                    agent_name=response["agent"],
                 )
-            else:
-                # load the parameters from the last turn and reinitialize
-                # self.current_agent = self.record.turns[-1].agent
-                # self.llm_model_name = self.record.turns[-1].model
-                # self.llm_temperature = self.record.turns[-1].temperature
-                await self.set_agent_and_model(
-                    agent=self.record.turns[-1].agent,
-                    model=self.record.turns[-1].model,
-                    temperature=self.record.turns[-1].temperature,
-                    model_context=self.record.turns[-1].memory_messages,
-                    update_ui=True,
-                )
-                self._current_question = self.record.turns[-1].prompt
-
-                # await self._reinitialize_llm_model(self.record.turns[-1].memory_messages)
-
-            # clear the chatboxes from the chat container
-
-            self._message_container.clear()
-
-            # load the chat history from the record
-            for turn in self.record.turns:
-                await self.add_to_chat_message(role="user", message=turn.prompt)
                 await self.end_chat_turn(role="meta")
-
-                for response in turn.responses:
-                    await self.add_to_chat_message(
-                        role="assistant_historical",
-                        message=response["response"],
-                        agent_name=response["agent"],
-                    )
-                    await self.end_chat_turn(role="meta")
-            # self.scroll_to_end()
-            return
-        if action == "delete":
-            await self.history_container.delete_history_box(box)
-            return
 
     async def initialize(self):
         # set the agent and model

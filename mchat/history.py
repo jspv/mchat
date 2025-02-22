@@ -48,9 +48,7 @@ class HistorySessionBox(object):
                     .classes("bg-secondary w-8")
                     .on(
                         "click.stop",
-                        lambda: self._call_callback(
-                            {"record": self.record, "box": self, "action": "copy"}
-                        ),
+                        lambda: self._call_callback({"box": self, "action": "copy"}),
                     )
                 )
                 self.delete_button = (
@@ -59,9 +57,7 @@ class HistorySessionBox(object):
                     .classes("bg-secondary w-8")
                     .on(
                         "click.stop",
-                        lambda: self._call_callback(
-                            {"record": self.record, "box": self, "action": "delete"}
-                        ),
+                        lambda: self._call_callback({"box": self, "action": "delete"}),
                     )
                 )
             self.summary = ui.label()
@@ -78,9 +74,7 @@ class HistorySessionBox(object):
         self.box.history_box = self
         self.box.on(
             "click",
-            lambda: self._call_callback(
-                {"record": self.record, "box": self, "action": "load"}
-            ),
+            lambda: self._call_callback({"box": self, "action": "load"}),
         )
 
     def delete(self) -> None:
@@ -100,10 +94,6 @@ class HistorySessionBox(object):
     @active.setter
     def active(self, value: bool) -> None:
         if value:
-            # make all other boxes inactive
-            for child in self.box.parent_slot.parent.default_slot.children:
-                if hasattr(child, "history_box") and child != self.box:
-                    child.history_box.active = False
             self._active = True
             self.box.classes(remove="bg-primary")
             self.box.classes("bg-secondary")
@@ -170,16 +160,20 @@ class HistoryContainer:
 
     def __init__(
         self,
-        callback: Callable | None = None,
+        new_record_callback: Callable | None = None,
         new_label: str = "",
     ) -> None:
+        # list of HistorySessionBox objects
+        self.boxes = []
         self.new_label = new_label
-        HistorySessionBox.callback = callback
+        self.new_record_callback = new_record_callback
+        self._active_session: HistorySessionBox | None = None
+
+        # Set the HistorySessionBox callback
+        HistorySessionBox.callback = self.history_card_clicked_callback
+
         self.connection = self._initialize_db()
 
-        # with ui.left_drawer(top_corner=True, bottom_corner=True).style(
-        #     "background-color: #d7e3f4"
-        # ) as self.history_container:
         with ui.left_drawer(
             top_corner=True, bottom_corner=True
         ) as self.history_container:
@@ -206,13 +200,24 @@ class HistoryContainer:
                 record=record,
                 new_label=self.new_label,
             )
-            self.active_session.active = True
-            # self.active_session.add_class("-active")
-            # yield self.active_session
+            self.boxes.append(self.active_session)
 
     @property
     def active_record(self) -> ConversationRecord:
-        return self.active_session.record
+        return self._active_session.record
+
+    @property
+    def active_session(self) -> HistorySessionBox:
+        return self._active_session
+
+    @active_session.setter
+    def active_session(self, value: HistorySessionBox) -> None:
+        self._active_session = value
+        # make the session the only one active
+        self._active_session.active = True
+        for box in self.boxes:
+            if box != self._active_session:
+                box.active = False
 
     # Initialize the database and return a connection object
     def _initialize_db(self) -> apsw.Connection:
@@ -259,7 +264,8 @@ class HistoryContainer:
                 new_label=self.new_label,
                 label=record.summary,
             )
-        self.active_session.active = True
+        self.boxes.append(self.active_session)
+        # self.active_session.active = True
         return self.active_session
 
     async def _add_session(
@@ -279,38 +285,27 @@ class HistoryContainer:
                 new_label=self.new_label,
                 label=label,
             )
-        self.active_session.active = True
-
-        # # Activate the new session and deactivate all others
-        # self.active_session.add_class("-active")
-        # # remove the .-active class from all other boxes
-        # for child in self.children:
-        #     child.remove_class("-active")
-        # await self.mount(self.active_session)
-        # pass
+        self.boxes.append(self.active_session)
+        # self.active_session.active = True
 
     async def delete_history_box(self, session_box: HistorySessionBox) -> None:
         """Delete a HistorySessionBox from the HistoryContainer"""
         # check to see if this is the last session
         if self.session_count == 1:
             session_box.delete()
+            self.boxes.remove(session_box)
             await self.delete_conversation(session_box.record)
         elif session_box.record == self.active_record:
             # get the position of the session_box
-            pos = self.history_container.default_slot.children.index(session_box.box)
-            # if the position is 1, set the next session as active, otherwise set
-            # it to the previous session
-            if pos == 1:
-                self.active_session = self.history_container.default_slot.children[
-                    2
-                ].history_box
-                self.active_session.active = True
+            pos = self.boxes.index(session_box)
+            if pos == 0:
+                self.active_session = self.boxes[1]
             else:
-                self.active_session = self.history_container.default_slot.children[
-                    pos - 1
-                ].history_box
-                self.active_session.active = True
+                self.active_session = self.boxes[pos - 1]
+            # self.active_session.active = True
+
             session_box.delete()
+            self.boxes.remove(session_box)
             await self.delete_conversation(session_box.record)
 
             # click the active session to load it
@@ -324,6 +319,7 @@ class HistoryContainer:
 
         else:
             session_box.delete()
+            self.boxes.remove(session_box)
             await self.delete_conversation(session_box.record)
 
     async def delete_conversation(self, record: ConversationRecord):
@@ -358,8 +354,29 @@ class HistoryContainer:
         # self.scroll_to_end()
         return self.active_record
 
+    async def history_card_clicked_callback(self, click_args: dict) -> None:
+        """Callback for when a HistorySessionBox is clicked"""
+        action = click_args["action"]
+        box = click_args["box"]
+
+        assert action in ["load", "copy", "delete"]
+
+        if action == "load":
+            self.active_session = box
+            # self.active_session.active = True
+            await self.new_record_callback(box.record)
+            return
+
+        if action == "delete":
+            await self.delete_history_box(box)
+            return
+
+        if action == "copy":
+            ui.notify("Copied not implemented yet")
+            return
+
     @property
     def session_count(self) -> int:
         # return the number of sessions in the history container
         # subtract 1 to account for the header
-        return len(self.history_container.default_slot.children) - 1
+        return len(self.boxes)
