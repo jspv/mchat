@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, TypeAlias
 
 import apsw.bestpractice
 from nicegui import ui
@@ -7,35 +7,29 @@ from nicegui import ui
 from mchat.Conversation import ConversationRecord
 from mchat.llm import LLMTools
 
+# Define type alias for Callbacks
+CallbackType: TypeAlias = Callable[..., None] | None
+
 
 class HistorySessionBox(object):
     """A container for a single chat history session"""
 
-    # Class variables since all SessionBox instances will use the same callbacks
-    _callback: Callable | None = None
+    _callback: CallbackType = None  # Shared among all instances
 
     def __init__(
         self,
         record: ConversationRecord,
-        callback: Callable | None = None,
         new_label: str = "",
         label: str = "",
-        *args,
-        **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
         self.new_label = new_label
         self.label = label
         self.record = record
         self._active = False
 
-        # callbacks
-        self._callback = callback
-
-        if len(self.record.turns) > 0:
-            session_box_label = self.get_relative_date(self.record.created)
-        else:
-            session_box_label = "..."
+        session_box_label = (
+            self.get_relative_date(self.record.created) if self.record.turns else "..."
+        )
 
         with ui.card().classes("w-full bg-secondary") as self.box:
             with ui.row(align_items="center").classes("w-full justify-end"):
@@ -43,12 +37,15 @@ class HistorySessionBox(object):
                     "justify-self-start"
                 )
                 ui.element().classes("flex-grow")
+
                 self.copy_button = (
                     ui.button(icon="content_copy")
                     .classes("bg-secondary w-8")
                     .on(
                         "click.stop",
-                        lambda: self._call_callback({"box": self, "action": "copy"}),
+                        lambda: self._call_callback(
+                            {"session_box": self, "action": "copy"}
+                        ),
                     )
                 )
                 self.delete_button = (
@@ -57,35 +54,40 @@ class HistorySessionBox(object):
                     .classes("bg-secondary w-8")
                     .on(
                         "click.stop",
-                        lambda: self._call_callback({"box": self, "action": "delete"}),
+                        lambda: self._call_callback(
+                            {"session_box": self, "action": "delete"}
+                        ),
                     )
                 )
-            self.summary = ui.label()
-            if len(self.record.turns) == 0:
-                self.summary.text = self.new_label
-                self.copy_button.visible = False
-            else:
-                if len(self.label) > 0:
-                    self.summary.text = self.label
-                else:
-                    self.summary.text = self.record.turns[-1].prompt
 
-        # store a reference to this object in the box
-        self.box.history_box = self
+            self.summary = ui.label(
+                self.label
+                or (
+                    self.record.turns[-1].prompt
+                    if self.record.turns
+                    else self.new_label
+                )
+            )
+            self.copy_button.visible = bool(self.record.turns)
+
         self.box.on(
             "click",
-            lambda: self._call_callback({"box": self, "action": "load"}),
+            lambda: self._call_callback({"session_box": self, "action": "load"}),
         )
 
     def delete(self) -> None:
         """Remove the HistorySessionBox from the UI"""
-        if self.box.is_deleted is False:
+        if not self.box.is_deleted:
             self.box.delete()
 
-    # Callbacks
     @property
-    def callback(self) -> Callable:
-        return self._callback
+    def callback(self) -> CallbackType:
+        return type(self)._callback
+
+    @classmethod
+    def set_callback(cls, callback: CallbackType) -> None:
+        """set the clilck callback for all HistorySessionBox"""
+        cls._callback = callback
 
     @property
     def active(self) -> bool:
@@ -93,85 +95,67 @@ class HistorySessionBox(object):
 
     @active.setter
     def active(self, value: bool) -> None:
-        if value:
-            self._active = True
-            self.box.classes(remove="bg-primary")
-            self.box.classes("bg-secondary")
-            self.box.update()
-
-        else:
-            self._active = False
-            self.box.classes(remove="bg-secondary")
-            self.box.classes("bg-primary")
-            self.box.update()
-
-    @callback.setter
-    def callback(self, value: Callable) -> None:
-        self._callback = value
+        self._active = value
+        self.box.classes(remove="bg-primary" if value else "bg-secondary")
+        self.box.classes("bg-secondary" if value else "bg-primary")
+        # self.box.update()
 
     async def _call_callback(self, *args, **kwargs) -> None:
-        if self.callback is not None:
-            await self.callback(*args, **kwargs)
+        """Call the callback if it exists."""
+        if self._callback:
+            await self._callback(*args, **kwargs)
         else:
             raise ValueError("No callback provided")
 
     def update_box(self, record: ConversationRecord) -> None:
         """Update the HistorySessionBox with a new ConversationRecord."""
-
         self.record = record
-        self.copy_button.visible = True
+        self.copy_button.visible = bool(record.turns)
 
-        if len(record.summary) > 0:
+        if record.summary:
             self.summary.text = record.summary
-            self.boxlabel.text = self.get_relative_date(record.created)
-            return
+        elif record.turns:
+            self.summary.text = record.turns[-1].prompt
+            self.record.summary = record.turns[-1].prompt
 
-        if len(record.turns) == 0:
-            return
-
-        # no summary was providied, so update the summary with the last prompt
-        self.summary.text = record.turns[-1].prompt
-        self.record.summary = record.turns[-1].prompt
+        self.boxlabel.text = self.get_relative_date(record.created)
 
     @staticmethod
-    def get_relative_date(timestamp):
-        local_timezone = datetime.now(timezone.utc).astimezone().tzinfo
-        current_time = datetime.now(local_timezone)
-        timestamp = timestamp.replace(tzinfo=local_timezone)
-        if timestamp.date() == current_time.date():
-            return "today" + "-" + timestamp.strftime("%H:%M")
-        elif timestamp.date() == current_time.date() - timedelta(1):
-            return "yesterday" + "-" + timestamp.strftime("%H:%M")
+    def get_relative_date(timestamp: datetime) -> str:
+        """Return a relative date label."""
+        local_tz = datetime.now(timezone.utc).astimezone().tzinfo
+        current_time = datetime.now(local_tz)
+        timestamp = timestamp.replace(tzinfo=local_tz)
+
+        if timestamp > current_time:
+            return f"future-{timestamp:%m-%d %H:%M}"
+        elif timestamp.date() == current_time.date():
+            return f"today-{timestamp:%H:%M}"
+        elif timestamp.date() == current_time.date() - timedelta(days=1):
+            return f"yesterday-{timestamp:%H:%M}"
         elif (current_time - timestamp).days < 7:
-            return timestamp.strftime("%A") + "-" + timestamp.strftime("%H:%M")
-        else:
-            return timestamp.strftime("%m-%d") + "-" + timestamp.strftime("%H:%M")
+            return f"{timestamp:%A}-{timestamp:%H:%M}"
+        return f"{timestamp:%m-%d}-{timestamp:%H:%M}"
 
 
 class HistoryContainer:
-    """A container for managing chat history sessions with asscociated logic"""
+    """A container for managing chat history sessions with associated logic."""
 
-    prompt_template = """
-    Here is list of chat submissions in the form of 'user: message'. Give me no more
-    than 10 words which will be used to remind the user of the conversation.  Your reply
-    should be no more than 10 words and at most 66 total characters.
-    Chat submissions: {conversation}
-    """
+    prompt_template = (
+        "Here is a list of chat submissions in the form of 'user: message'. "
+        "Give me a concise label (≤10 words, max 66 characters) for the conversation. "
+        "Chat submissions: {conversation}"
+    )
 
     def __init__(
-        self,
-        new_record_callback: Callable | None = None,
-        new_label: str = "",
+        self, new_record_callback: CallbackType = None, new_label: str = ""
     ) -> None:
-        # list of HistorySessionBox objects
-        self.boxes = []
+        self.sessions: list[HistorySessionBox] = []
         self.new_label = new_label
         self.new_record_callback = new_record_callback
         self._active_session: HistorySessionBox | None = None
 
-        # Set the HistorySessionBox callback
-        HistorySessionBox.callback = self.history_card_clicked_callback
-
+        HistorySessionBox.set_callback(self.history_card_clicked_callback)
         self.connection = self._initialize_db()
 
         with ui.left_drawer(
@@ -179,28 +163,22 @@ class HistoryContainer:
         ) as self.history_container:
             ui.label("History").style("font-size: 1.5em; font-weight: bold")
 
-            # if there are records in the databaase, load them
-            cursor = self.connection.cursor()
-            rows = cursor.execute("SELECT id FROM Conversations").fetchall()
-            records = []
-            if len(rows) > 0:
-                for row in rows:
-                    records.append(
-                        self._read_conversation_from_db(self.connection, row[0])
-                    )
+            records = [
+                self._read_conversation_from_db(row[0])
+                for row in self.connection.cursor()
+                .execute("SELECT id FROM Conversations")
+                .fetchall()
+            ]
 
-                # sort the records by timestamp of first turn
-                records.sort(key=lambda x: x.created)
-                for record in records:
-                    self._add_previous_session(record)
+            # add previous sessions
+            for record in sorted(records, key=lambda x: x.created):
+                self._add_previous_session(record)
 
-            # create a new session with an empty conversation record
-            record = ConversationRecord()
+            # add a new session and make it active
             self.active_session = HistorySessionBox(
-                record=record,
-                new_label=self.new_label,
+                record=ConversationRecord(), new_label=self.new_label
             )
-            self.boxes.append(self.active_session)
+            self.sessions.append(self.active_session)
 
     @property
     def active_record(self) -> ConversationRecord:
@@ -213,48 +191,42 @@ class HistoryContainer:
     @active_session.setter
     def active_session(self, value: HistorySessionBox) -> None:
         self._active_session = value
-        # make the session the only one active
         self._active_session.active = True
-        for box in self.boxes:
-            if box != self._active_session:
-                box.active = False
 
-    # Initialize the database and return a connection object
+        for session in self.sessions:
+            if session != self._active_session:
+                session.active = False
+
     def _initialize_db(self) -> apsw.Connection:
-        # SQLite3 stuff
+        """Initialize the SQLite database."""
         apsw.bestpractice.apply(apsw.bestpractice.recommended)
-
-        # Default will create the database if it doesn't exist
-        connection = apsw.Connection("db.db")
-        cursor = connection.cursor()
-        cursor.execute(
+        conn = apsw.Connection("db.db")
+        conn.cursor().execute(
             "CREATE TABLE IF NOT EXISTS Conversations (id TEXT PRIMARY KEY, data TEXT)"
         )
-        return connection
+        return conn
 
-    def _write_conversation_to_db(self, conn, conversation):
-        cursor = conn.cursor()
-        serialized_conversation = conversation.to_json()
-        cursor.execute(
+    def _write_conversation_to_db(self, record: ConversationRecord) -> None:
+        """Write or update a conversation record in the database."""
+        serialized_conversation = record.to_json()
+        self.connection.cursor().execute(
             "INSERT OR REPLACE INTO Conversations (id, data) VALUES (?, ?)",
-            (
-                conversation.id,
-                serialized_conversation,
-            ),
+            (record.id, serialized_conversation),
         )
 
-    def _read_conversation_from_db(self, conn, id) -> ConversationRecord:
-        cursor = conn.cursor()
-        row = cursor.execute(
-            "SELECT data FROM Conversations WHERE id=?", (id,)
-        ).fetchone()
-        conversation = ConversationRecord.from_json(row[0])
-        return conversation
+    def _read_conversation_from_db(self, id: str) -> ConversationRecord:
+        row = (
+            self.connection.cursor()
+            .execute("SELECT data FROM Conversations WHERE id=?", (id,))
+            .fetchone()
+        )
+        return ConversationRecord.from_json(row[0]) if row else ConversationRecord()
 
-    def _delete_conversation_from_db(self, conn, record: ConversationRecord):
-        cursor = conn.cursor()
-        id = record.id
-        cursor.execute("DELETE FROM Conversations WHERE id=?", (id,))
+    def _delete_conversation_from_db(self, record: ConversationRecord) -> None:
+        """Delete a conversation record from the database."""
+        self.connection.cursor().execute(
+            "DELETE FROM Conversations WHERE id=?", (record.id,)
+        )
 
     def _add_previous_session(self, record: ConversationRecord) -> HistorySessionBox:
         """returns a new HistorySessionBox to the HistoryContainer."""
@@ -264,119 +236,104 @@ class HistoryContainer:
                 new_label=self.new_label,
                 label=record.summary,
             )
-        self.boxes.append(self.active_session)
+        self.sessions.append(self.active_session)
         # self.active_session.active = True
         return self.active_session
 
-    async def _add_session(
+    def _add_session(
         self, record: ConversationRecord | None = None, label: str = ""
     ) -> HistorySessionBox:
-        """Add a new session to the HistoryContainer and set it as active"""
-        label = label if len(label) > 0 else ""
+        """Add a new session to the HistoryContainer and set it as active."""
 
-        # if no record is provided, create a new record
-        if record is None:
-            record = ConversationRecord()
+        record = record or ConversationRecord()  # Ensure a valid record is used
 
-        # Attach the record to a new session
         with self.history_container:
             self.active_session = HistorySessionBox(
-                record=record,
-                new_label=self.new_label,
-                label=label,
+                record=record, new_label=self.new_label, label=label
             )
-        self.boxes.append(self.active_session)
-        # self.active_session.active = True
+
+        self.sessions.append(self.active_session)
+        return self.active_session
 
     async def delete_history_box(self, session_box: HistorySessionBox) -> None:
         """Delete a HistorySessionBox from the HistoryContainer"""
         # check to see if this is the last session
         if self.session_count == 1:
             session_box.delete()
-            self.boxes.remove(session_box)
-            await self.delete_conversation(session_box.record)
-        elif session_box.record == self.active_record:
-            # get the position of the session_box
-            pos = self.boxes.index(session_box)
+            self._delete_conversation_from_db(session_box.record)
+            self.sessions.remove(session_box)
+            await self.new_session()
+        elif session_box == self.active_session:
+            # need to pick a new active session
+            pos = self.sessions.index(session_box)
             if pos == 0:
-                self.active_session = self.boxes[1]
+                self.active_session = self.sessions[1]
             else:
-                self.active_session = self.boxes[pos - 1]
-            # self.active_session.active = True
+                self.active_session = self.sessions[pos - 1]
 
             session_box.delete()
-            self.boxes.remove(session_box)
-            await self.delete_conversation(session_box.record)
+            self._delete_conversation_from_db(session_box.record)
+            self.sessions.remove(session_box)
 
-            # click the active session to load it
+            # call the callback to load the new active session
             await self.active_session.callback(
                 {
                     "action": "load",
-                    "box": self.active_session,
+                    "session_box": self.active_session,
                     "record": self.active_session.record,
                 }
             )
-
         else:
             session_box.delete()
-            self.boxes.remove(session_box)
-            await self.delete_conversation(session_box.record)
-
-    async def delete_conversation(self, record: ConversationRecord):
-        """Delete a conversation from the HistoryContainer and the database"""
-        self._delete_conversation_from_db(self.connection, record)
-        if self.session_count == 0:
-            await self.new_session()
+            self._delete_conversation_from_db(session_box.record)
+            self.sessions.remove(session_box)
 
     async def update_conversation(self, record: ConversationRecord):
         """Update the active session with a new ConversationRecord."""
 
-        # grab the last 10 turns
-        turns = record.turns
-        if len(turns) > 10:
-            turns = turns[-10:]
-
-        # group the turns of the conversation and summarize
-        conversation = []
-        for turn in turns:
-            conversation.append({"user": turn.prompt, "ai": turn.responses})
+        # get the last 10 turns
+        conversation = [
+            {"user": turn.prompt, "ai": turn.responses} for turn in record.turns[-10:]
+        ]
         record.summary = await LLMTools.aget_summary_label(conversation)
 
         # update the active session
         self.active_session.update_box(record)
 
         # update the database
-        self._write_conversation_to_db(self.connection, record)
+        self._write_conversation_to_db(record)
 
     async def new_session(self) -> ConversationRecord:
         """Add a new empty session to the HistoryContainer and set it as active"""
-        await self._add_session()
+        self._add_session()
         # self.scroll_to_end()
-        return self.active_record
+        return self.active_session.record
 
     async def history_card_clicked_callback(self, click_args: dict) -> None:
         """Callback for when a HistorySessionBox is clicked"""
-        action = click_args["action"]
-        box = click_args["box"]
+        action: str = click_args["action"]
+        session_box: HistorySessionBox = click_args["session_box"]
 
         assert action in ["load", "copy", "delete"]
 
         if action == "load":
-            self.active_session = box
-            # self.active_session.active = True
-            await self.new_record_callback(box.record)
+            self.active_session = session_box
+            await self.new_record_callback(session_box.record)
             return
 
         if action == "delete":
-            await self.delete_history_box(box)
+            await self.delete_history_box(session_box)
+            await self.new_record_callback(self.active_session.record)
             return
 
         if action == "copy":
-            ui.notify("Copied not implemented yet")
+            new_record = session_box.record.copy()
+            self._add_session(new_record, label=session_box.label)
+            await self.new_record_callback(self.active_session.record)
             return
 
     @property
     def session_count(self) -> int:
         # return the number of sessions in the history container
         # subtract 1 to account for the header
-        return len(self.boxes)
+        return len(self.sessions)

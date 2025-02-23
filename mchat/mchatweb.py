@@ -17,10 +17,12 @@ EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
 
 
 class ChatTurn(object):
+    """A single turn in a chat conversation, UI and logic"""
+
     def __init__(
         self,
         container: ui.element,
-        question: str = "",
+        question: str = None,
         role: str = "user",
         title: str = "Agent",
     ):
@@ -31,18 +33,23 @@ class ChatTurn(object):
 
         with self.container:
             if question and role == "user":
-                with ui.chat_message(name="You", sent=True):
-                    ui.markdown(question)
-            self.response_chat = ui.chat_message(name=self.agent, sent=False)
-            # this keeps the label invisible until we get content
-            self.response_chat.visible = False
+                with ui.row().classes("mt-4 mb-1 justify-end"):
+                    ui.label(f"{question}").classes("bg-secondary p-4 rounded-lg")
+            with ui.element("div") as self.chat_response:
+                self.chat_response_label = ui.label("").classes("text-[8px]")
+                self.chat_response_content = ui.element("div").classes(
+                    "bg-primary p-2 rounded-lg"
+                )
+            # this keeps the area invisible until we get content
+            self.chat_response.visible = False
 
     async def append_chunk(self, chunk: str):
         self.response += chunk
-        self.response_chat.clear()
-        if self.response_chat.visible is False:
-            self.response_chat.visible = True
-        with self.response_chat:
+        self.chat_response_content.clear()
+        if self.chat_response.visible is False:
+            self.chat_response_label.text = f"{self.agent}"
+            self.chat_response.visible = True
+        with self.chat_response_content:
             ui.markdown(
                 self.response,
                 extras=["fenced-code-blocks", "tables", "code-friendly", "latex"],
@@ -114,6 +121,7 @@ class WebChatApp:
 
         # Todo - find out why this is happening
         if message is None:
+            ui.notify("add_to_chat_messsage: Message is None", type="warning")
             return
 
         if self.chatbox is None:
@@ -417,8 +425,8 @@ class WebChatApp:
             return
 
         # Normal user question
-        await self.end_chat_turn(role="user")
         self._current_question = question
+        await self.end_chat_turn(role="user")
         try:
             await self.ag.ask(question)
         except Exception as e:
@@ -512,12 +520,12 @@ class WebChatApp:
             ui.colors(
                 secondary="#26A69A",
                 accent="#dd4b39",
-                dark="#1D1D1D",
+                dark="#171717",
                 positive="#21BA45",
                 negative="#C10015",
                 info="#31CCEC",
                 warning="#F2C037",
-                primary="rgba(15, 23, 42, 0.89)",
+                primary="#212121",
             )
 
             # Below allows code blocks in markdown to look nice
