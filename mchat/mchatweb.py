@@ -61,49 +61,211 @@ class ChatTurn(object):
 
 
 class WebChatApp:
-    # The main area for chat communicaitons
-    _message_container: ui.element | None = None
+    def __init__(self) -> None:
+        # will be set by set_agent_and_model
+        self._current_agent: str | None = None
+        self._current_compatible_models: list[str] | None = None
+        self._current_llm_model: str | None = None
 
-    class Log:
-        info_classes = "bg-primary"
-        debug_classes = "bg-warning"
+        self.current_temperature: float | None = None
+        self.current_question: str | None = None
 
-        def __init__(self, app):
-            self.app = app
-            self.debug = self.Debug(self)
+        # current debug log
+        self.debug_log = []
+        self.logger = self.Log(
+            self
+        )  # note: logging will not work until UI is initialized
 
-        def __call__(self, message):
-            # This is called when the instance itself is called like a function
-            self.app.debug_log.append({"type": "INFO", "message": message})
-            if hasattr(self.app, "_debug_container"):
-                with self.app._debug_container:
-                    ui.label(message).classes(self.info_classes)
-                self.app._debug_container.scroll_to(percent=100)
+        self.history_container: HistoryContainer | None = None
+        self.message_container: ui.element | None = None
+        self.status_container: StatusContainer | None = None
+        self.chatbox: ChatTurn | None = None
 
-        def rebuild(self):
-            """rebuld the log entries"""
-            if hasattr(self.app, "_debug_container"):
-                with self.app._debug_container:
-                    for entry in self.app.debug_log:
-                        if entry["type"] == "INFO":
-                            ui.label(entry["message"]).classes(self.info_classes)
-                        elif entry["type"] == "DEBUG":
-                            ui.label(entry["message"]).classes(self.debug_classes)
-                self.app._debug_container.scroll_to(percent=100)
+        # parse arguments
+        self.parse_args_and_initialize()
+        # load agents
+        self.agents = self.load_agents()
+        self.chooseable_agents = [
+            agent_name
+            for agent_name, val in self.agents.items()
+            if val.get("choosable", True)
+        ]
 
-        class Debug:
-            def __init__(self, outer):
-                self.app = outer.app
-                self.debug_classes = outer.debug_classes
-                self.info_classes = outer.info_classes
+        # Get an object to manage the AI models
+        self.mm = ModelManager()
 
-            def __call__(self, message):
-                # This is called when the instance itself is called like a function
-                self.app.debug_log.append({"type": "DEBUG", "message": message})
-                if hasattr(self.app, "_debug_container"):
-                    with self.app._debug_container:
-                        ui.label(f"DEBUG: {message}").classes(self.debug_classes)
-                    self.app._debug_container.scroll_to(percent=100)
+        # Get an object to manage autogen
+        self.ag = AutogenManager(
+            message_callback=self.on_llm_new_token,
+            agents=self.agents,
+        )
+        # load the llm models from settings - name: {key: value,...}
+
+        self.available_llm_models = self.mm.available_chat_models
+        self.available_image_models = self.mm.available_image_models
+
+        self._current_llm_model = self.mm.default_chat_model
+        self.llm_temperature = self.mm.default_chat_temperature
+
+        # Initialize the image model
+        self.default_image_model = settings.get("defaults.image_model", None)
+        if self.mm.default_image_model is not None:
+            self.image_model_name = self.mm.default_image_model
+            self.image_model = self.mm.open_model(
+                self.image_model_name, model_type="image"
+            )
+        else:
+            self.image_model_name = None
+            self.image_model = None
+
+        # Initialze the agent, model and active conversation record
+
+        # set the agent and model
+        self.default_agent = getattr(settings, "defaults.agent", "default")
+
+        asyncio.run(
+            self.set_agent_and_model(
+                agent=self.default_agent,
+                model=self._current_llm_model,
+                temperature=self.llm_temperature,
+                model_context=None,
+            )
+        )
+
+        # Define the main UI layout
+        @ui.page("/")
+        def main_ui():
+            # the queries below are used to expand the contend down to the footer
+            # (content can then use flex-grow to expand)
+            ui.query(".q-page").classes("flex")
+            ui.query(".nicegui-content").classes("w-full")
+            dark_mode = ui.dark_mode(True)
+            ui.colors(
+                secondary="#26A69A",
+                accent="#dd4b39",
+                dark="#171717",
+                positive="#21BA45",
+                negative="#C10015",
+                info="#31CCEC",
+                warning="#F2C037",
+                primary="#212121",
+            )
+
+            # Below allows code blocks in markdown to look nice
+            ui.add_head_html(
+                f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'
+            )
+
+            self.message_container = ui.element("div").classes(
+                "w-full max-w-4xl mx-auto flex-grow items-stretch"
+            )
+
+            # Header
+            with ui.header(elevated=True).classes(
+                "flex items-center justify-between bg-dark"
+            ):
+                ui.label("MChat")
+                self.status_container = StatusContainer(app=self)
+                ui.switch("dark mode").bind_value(dark_mode).props(
+                    "color=secondary"
+                ).classes("ml-auto")
+                ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
+                    "flat color=white"
+                )
+                # ui.button(on_click=lambda: ui.notify("Close"), icon="close").props(
+                #     "flat color=white"
+                # )
+
+            # Left drawer History Container, this will aslo load the database and
+            # populate the history container
+
+            self.history_container = HistoryContainer(
+                new_record_callback=self.load_record, new_label="New Session"
+            )
+            # Load the active conversation record
+            self.record = self.history_container.active_record
+
+            # Right Drawer Debug Pane
+            with (
+                ui.right_drawer(value=False, fixed=True).props(
+                    "bordered"
+                ) as right_drawer
+                # .style("background-color: #ebf1fa")
+            ):
+                ui.label("DEBUG")
+                self._debug_container = ui.scroll_area().classes("h-full p-4")
+
+            # Footer and Input Area
+            # with ui.footer().style("background-color: #3874c8"):
+            with ui.footer():
+                with ui.row().classes("w-full no-wrap items-center"):
+                    placeholder = "Type your question here"
+                    with ui.textarea(placeholder=placeholder) as text:
+
+                        async def _enter(e: events.GenericEventArguments):
+                            if e.args["shiftKey"]:
+                                return
+                            else:
+                                # this is a new quesiton
+                                question = text.value
+                                text.value = ""
+                                with self.message_container:
+                                    self._spinner = ui.spinner(color="secondary")
+                                    await self.add_to_chat_message(
+                                        role="user", message=question
+                                    )
+                                await self.ask_question(question)
+                                # spinner may be gone if commands changed the session
+                                if self._spinner.is_deleted is False:
+                                    self._spinner.delete()
+                                # await self.end_chat_turn(role="user")
+
+                        text.props("rounded outlined input-class=mx-3")
+                        text.classes("w-full self-center")
+                        text.props('input-class="h-14"')
+                        # text.on("keydown.enter", send)
+                        text.on("keydown.enter", _enter)
+
+            self.logger.rebuild()
+
+        self.logger("Starting MChat")
+        self.logger.debug("Debug logging enabled")
+
+    @property
+    def current_agent(self):
+        return self._current_agent
+
+    @current_agent.setter
+    def current_agent(self, agent: str):
+        self.logger(f"setting agent to {agent}")
+        asyncio.create_task(self.set_agent_and_model(agent=agent))
+        ui.notify(f"Agent set to {agent}", type="info")
+
+    @property
+    def current_compatible_models(self):
+        return self._current_compatible_models
+
+    @current_compatible_models.setter
+    def current_compatible_models(self, models: list[str]):
+        self._current_compatible_models = models
+        if self.status_container is not None:
+            self.status_container.models.refresh()
+
+    @property
+    def current_llm_model(self):
+        return self._current_llm_model
+
+    @current_llm_model.setter
+    def current_llm_model(self, model: str):
+        if model is None:  # this can happen when the UI is refreshing
+            return
+        if model not in self.current_compatible_models:
+            raise ValueError(
+                f"model '{model}' not compatible with agent '{self.agent}'"
+            )
+        self.logger(f"setting model to {model}")
+        asyncio.create_task(self.set_agent_and_model(model=model))
+        ui.notify(f"Model set to {model}", type="info")
 
     def handle_exception(self, e: Exception) -> None:
         """callbacks don't propogate excecptions, so this sends them to ui.notify"""
@@ -131,6 +293,11 @@ class WebChatApp:
         if "complete" in kwargs and kwargs["complete"]:
             await self.end_chat_turn(role="assistant", agent_name=agent_name)
 
+    def set_agent(self, agent: str):
+        """Callback to set the agent"""
+        self.logger(f"Setting agent to {agent}")
+        asyncio.create_task(self.set_agent_and_model(agent=agent))
+
     def parse_args_and_initialize(self):
         parser = argparse.ArgumentParser()
         parser.add_argument(
@@ -146,13 +313,13 @@ class WebChatApp:
         if (
             agent_name is not None
             and agent_name not in ["user", "meta"]
-            and agent_name != self.current_agent
+            and agent_name != self._current_agent
             and role == "assistant"
         ):
-            agent_name = f"{self.current_agent}:{agent_name}"
+            agent_name = f"{self._current_agent}:{agent_name}"
 
         else:
-            agent_name = self.current_agent
+            agent_name = self._current_agent
 
         # if the role is 'assistant_historical', change it to 'assistant'
         if role == "assistant_historical":
@@ -166,14 +333,14 @@ class WebChatApp:
         if self.chatbox is None:
             if role == "user":
                 self.chatbox = ChatTurn(
-                    self._message_container,
+                    self.message_container,
                     role=role,
                     title=agent_name,
                     question=message,
                 )
             else:
                 self.chatbox = ChatTurn(
-                    self._message_container, role=role, title=agent_name
+                    self.message_container, role=role, title=agent_name
                 )
                 await self.chatbox.append_chunk(message)
         else:
@@ -181,7 +348,7 @@ class WebChatApp:
 
         # move spinner to the end if it exists
         if hasattr(self, "_spinner") and self._spinner.is_deleted is False:
-            self._spinner.move(self._message_container)
+            self._spinner.move(self.message_container)
 
     async def end_chat_turn(self, role: str, agent_name: str | None = None):
         """Marks the end of a portion of the conversation and stores it"""
@@ -194,17 +361,17 @@ class WebChatApp:
             return
 
         # note if we're seeing a response from a sub-agent
-        if agent_name is not None and agent_name != self.current_agent:
-            agent_name = f"{self.current_agent}:{agent_name}"
+        if agent_name is not None and agent_name != self._current_agent:
+            agent_name = f"{self._current_agent}:{agent_name}"
         else:
-            agent_name = self.current_agent
+            agent_name = self._current_agent
 
         # if the role is 'user', this is a new message so setup a new turn
         if role == "user":
             self.record.new_turn(
                 agent=agent_name,
-                prompt=self._current_question,
-                model=self.llm_model_name,
+                prompt=self.current_question,
+                model=self._current_llm_model,
                 temperature=self.llm_temperature,
                 memory_messages=await self.ag.get_memory(),
             )
@@ -262,15 +429,14 @@ class WebChatApp:
                 await self.end_chat_turn(role="meta")
                 return
             # Start a new session
-            self._message_container.clear()
+            self.message_container.clear()
             self.record = await self.history_container.new_session()
-            self.llm_model_name = self.mm.default_chat_model
+            self._current_llm_model = self.mm.default_chat_model
             self.llm_temperature = self.mm.default_chat_temperature
-            self.current_agent = self.default_agent
             await self.set_agent_and_model(
                 agent=self.default_agent,
                 model=self.mm.default_chat_model,
-                update_ui=True,
+                model_context=None,
             )
             return
 
@@ -281,12 +447,8 @@ class WebChatApp:
                 role="assistant", message="Available agents\n\n", agent_name="meta"
             )
 
-            for agent in [
-                agent_name
-                for agent_name, val in self.agents.items()
-                if val.get("chooseable", True)
-            ]:
-                if agent == self.current_agent:
+            for agent in self.chooseable_agents:
+                if agent == self._current_agent:
                     await self.add_to_chat_message(
                         role="assistant",
                         message=f" - *{agent}* (current)\n",
@@ -315,9 +477,7 @@ class WebChatApp:
                 )
                 await self.end_chat_turn(role="meta")
                 return
-            await self.set_agent_and_model(
-                agent=agent, model_context="preserve", update_ui=True
-            )
+            await self.set_agent_and_model(agent=agent)
             await self.add_to_chat_message(
                 role="assistant",
                 message=f"Agent set to {agent}\n\nModel set to {self.ag.model}",
@@ -354,7 +514,7 @@ class WebChatApp:
                     agent_name="meta",
                 )
 
-            self._current_question = ""
+            self.current_question = ""
             await self.end_chat_turn(role="meta")
             return
 
@@ -366,12 +526,10 @@ class WebChatApp:
 
             # check to see if the name is an llm or image model
             if model in self.available_llm_models:
-                self.llm_model_name = model
+                self._current_llm_model = model
                 self.logger.debug(f"switching to llm model {model}")
                 try:
-                    await self.set_agent_and_model(
-                        model=model, model_context="preserve", update_ui=True
-                    )
+                    await self.set_agent_and_model(model=model)
                 except ValueError as e:
                     await self.add_to_chat_message(
                         role="assistant",
@@ -382,11 +540,11 @@ class WebChatApp:
                 else:
                     await self.add_to_chat_message(
                         role="assistant",
-                        message=f"Model set to {self.llm_model_name}",
+                        message=f"Model set to {self._current_llm_model}",
                         agent_name="meta",
                     )
                 await self.end_chat_turn(role="meta")
-                self._current_question = ""
+                self.current_question = ""
                 return
             elif model in self.available_image_models:
                 self.image_model_name = model
@@ -397,7 +555,7 @@ class WebChatApp:
                     message=f"Image model set to {self.image_model_name}",
                     agent_name="meta",
                 )
-                self._current_question = ""
+                self.current_question = ""
                 await self.end_chat_turn(role="meta")
                 return
             else:
@@ -406,7 +564,7 @@ class WebChatApp:
                     message=f"Model '{model}' not found",
                     agent_name="meta",
                 )
-                self._current_question = ""
+                self.current_question = ""
                 self.end_chat_turn(role="meta")
                 return
 
@@ -430,6 +588,7 @@ class WebChatApp:
                 )
 
             await self.end_chat_turn(role="meta")
+            self.status_container.stream_switch.refresh()
             return
         if question.startswith("stream off"):
             await self.end_chat_turn(role="meta")
@@ -464,7 +623,7 @@ class WebChatApp:
             return
 
         # Normal user question
-        self._current_question = question
+        self.current_question = question
         await self.end_chat_turn(role="user")
         try:
             await self.ag.ask(question)
@@ -478,27 +637,15 @@ class WebChatApp:
         # Assistant is done
         await self.end_chat_turn(role="assistant")
 
-    def __init__(self) -> None:
-        # current debug log
-        self.debug_log = []
-        self.logger = self.Log(
-            self
-        )  # note: logging will not work until UI is initialized
-
-        self.history_container: HistoryContainer | None = None
-
-        self.chatbox: ChatTurn | None = None
-
-        # parse arguments
-        self.parse_args_and_initialize()
-        # load standard agents
+    def load_agents(self) -> dict:
+        """Read the agent definition files and load the agents"""
         if os.path.exists(DEFAULT_AGENT_FILE):
             extension = os.path.splitext(DEFAULT_AGENT_FILE)[1]
             with open(DEFAULT_AGENT_FILE) as f:
                 if extension == ".json":
-                    self.agents = json.load(f)
+                    agents = json.load(f)
                 elif extension == ".yaml":
-                    self.agents = yaml.safe_load(f)
+                    agents = yaml.safe_load(f)
                 else:
                     raise ValueError(
                         f"unknown extension {extension} for {DEFAULT_AGENT_FILE}"
@@ -518,137 +665,8 @@ class WebChatApp:
                     raise ValueError(
                         f"unknown extension {extension} for {EXTRA_AGENTS_FILE}"
                     )
-            self.agents.update(extra_agents)
-
-        # Get an object to manage the AI models
-        self.mm = ModelManager()
-
-        # Get an object to manage autogen
-        self.ag = AutogenManager(
-            message_callback=self.on_llm_new_token,
-            agents=self.agents,
-        )
-        # load the llm models from settings - name: {key: value,...}
-
-        self.available_llm_models = self.mm.available_chat_models
-        self.available_image_models = self.mm.available_image_models
-
-        self.llm_model_name = self.mm.default_chat_model
-        self.llm_temperature = self.mm.default_chat_temperature
-
-        # Initialize the image model
-        self.default_image_model = settings.get("defaults.image_model", None)
-        if self.mm.default_image_model is not None:
-            self.image_model_name = self.mm.default_image_model
-            self.image_model = self.mm.open_model(
-                self.image_model_name, model_type="image"
-            )
-        else:
-            self.image_model_name = None
-            self.image_model = None
-
-        # Initialze the agent, model and active conversation record
-        asyncio.run(self.initialize())
-
-        # Define the main UI layout
-
-        @ui.page("/")
-        def main_ui():
-            # the queries below are used to expand the contend down to the footer
-            # (content can then use flex-grow to expand)
-            ui.query(".q-page").classes("flex")
-            ui.query(".nicegui-content").classes("w-full")
-            dark_mode = ui.dark_mode(True)
-            ui.colors(
-                secondary="#26A69A",
-                accent="#dd4b39",
-                dark="#171717",
-                positive="#21BA45",
-                negative="#C10015",
-                info="#31CCEC",
-                warning="#F2C037",
-                primary="#212121",
-            )
-
-            # Below allows code blocks in markdown to look nice
-            ui.add_head_html(
-                f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'
-            )
-
-            self._message_container = ui.element("div").classes(
-                "w-full max-w-4xl mx-auto flex-grow items-stretch"
-            )
-
-            # Header
-            with ui.header(elevated=True).classes(
-                "flex items-center justify-between bg-dark"
-            ):
-                ui.label("MChat")
-                self._status_container = StatusContainer()
-                ui.switch("dark mode").bind_value(dark_mode).props(
-                    "color=secondary"
-                ).classes("ml-auto")
-                ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
-                    "flat color=white"
-                )
-                ui.button(on_click=lambda: ui.notify("Close"), icon="close").props(
-                    "flat color=white"
-                )
-
-            # Left drawer History Container, this will aslo load the database and
-            # populate the history container
-
-            self.history_container = HistoryContainer(
-                new_record_callback=self.load_record, new_label="New Session"
-            )
-            # Load the active conversation record
-            self.record = self.history_container.active_record
-
-            # Right Drawer Debug Pane
-            with (
-                ui.right_drawer(value=False, fixed=True).props(
-                    "bordered"
-                ) as right_drawer
-                # .style("background-color: #ebf1fa")
-            ):
-                ui.label("DEBUG")
-                self._debug_container = ui.scroll_area().classes("h-full p-4")
-
-            # Footer and Input Area
-            # with ui.footer().style("background-color: #3874c8"):
-            with ui.footer():
-                with ui.row().classes("w-full no-wrap items-center"):
-                    placeholder = "Type your question here"
-                    with ui.textarea(placeholder=placeholder) as text:
-
-                        async def _enter(e: events.GenericEventArguments):
-                            if e.args["shiftKey"]:
-                                return
-                            else:
-                                # this is a new quesiton
-                                question = text.value
-                                text.value = ""
-                                with self._message_container:
-                                    self._spinner = ui.spinner(color="secondary")
-                                    await self.add_to_chat_message(
-                                        role="user", message=question
-                                    )
-                                await self.ask_question(question)
-                                # spinner may be gone if commands changed the session
-                                if self._spinner.is_deleted is False:
-                                    self._spinner.delete()
-                                # await self.end_chat_turn(role="user")
-
-                        text.props("rounded outlined input-class=mx-3")
-                        text.classes("w-full self-center")
-                        text.props('input-class="h-14"')
-                        # text.on("keydown.enter", send)
-                        text.on("keydown.enter", _enter)
-
-            self.logger.rebuild()
-
-        self.logger("Starting MChat")
-        self.logger.debug("Debug logging enabled")
+            agents.update(extra_agents)
+        return agents
 
     async def load_record(self, record):
         """Load a record into the chat, called from the history container"""
@@ -656,12 +674,10 @@ class WebChatApp:
 
         # if there are no turns in the record, it's a new session
         if len(self.record.turns) == 0:
-            self._current_question = ""
+            self.current_question = ""
             self.ag.clear_memory()
             await self.set_agent_and_model(
-                agent=self.default_agent,
-                model=self.mm.default_chat_model,
-                update_ui=True,
+                agent=self.default_agent, model=self.mm.default_chat_model
             )
         else:
             # load the parameters from the last turn and reinitialize
@@ -670,12 +686,11 @@ class WebChatApp:
                 model=self.record.turns[-1].model,
                 temperature=self.record.turns[-1].temperature,
                 model_context=self.record.turns[-1].memory_messages,
-                update_ui=True,
             )
-            self._current_question = self.record.turns[-1].prompt
+            self.current_question = self.record.turns[-1].prompt
 
         # clear the chatboxes from the chat container
-        self._message_container.clear()
+        self.message_container.clear()
 
         # load the chat history from the record
         for turn in self.record.turns:
@@ -690,27 +705,16 @@ class WebChatApp:
                 )
                 await self.end_chat_turn(role="meta")
 
-    async def initialize(self):
-        # set the agent and model
-        self.default_agent = getattr(settings, "defaults.agent", "default")
-
-        await self.set_agent_and_model(
-            agent=self.default_agent,
-            model=self.llm_model_name,
-            temperature=self.llm_temperature,
-        )
-
     async def set_agent_and_model(
         self,
         agent: str | None = None,
         model: str | None = None,
         temperature: float | None = None,
-        model_context: dict | Literal["preserve"] | None = None,
-        update_ui: bool = False,
+        model_context: dict | Literal["preserve"] | None = "preserve",
     ) -> None:
         """Change the agent and/or, updating the model to a compatible one if needed."""
         if not agent:
-            agent = self.current_agent
+            agent = self._current_agent
         if agent not in self.agents:
             raise ValueError(f"agent '{agent}' not found")
 
@@ -722,8 +726,8 @@ class WebChatApp:
         if not model:
             if self.agents[agent].get("model", None) is not None:
                 model = self.agents[agent]["model"]
-            elif self.llm_model_name in compatible_models:
-                model = self.llm_model_name
+            elif self._current_llm_model in compatible_models:
+                model = self._current_llm_model
             else:
                 model = self.mm.default_chat_model
 
@@ -740,23 +744,17 @@ class WebChatApp:
             agent=agent, model_id=model, temperature=temperature
         )
 
-        # # if it is a new agent, load compatable models into statusbar
-        # if agent != getattr(self, "current_agent", None):
-        #     self.query_one(StatusBar).load_models(
-        #         [(model, model) for model in compatible_models],
-        #         value=model,
-        #     )
-
-        # TODO rename llm_model_name to current_model
-        self.current_agent = agent
-        self.llm_model_name = model
+        self._current_agent = agent
+        # _current_compatible_models is updated in the setter
+        self.current_compatible_models = compatible_models
+        self._current_llm_model = model
         self.llm_temperature = temperature
 
         # update the memory with the model context
         if model_context:
             await self.ag.update_memory(model_context)
 
-        self._current_question = ""
+        self.current_question = ""
 
         # # if setting streaming is supported, enable the streaming selector
         # if self.ag.stream_tokens is not None:
@@ -785,6 +783,47 @@ class WebChatApp:
         # # )
 
         # await debug_pane.update_status()
+
+    class Log:
+        info_classes = "bg-primary"
+        debug_classes = "bg-warning"
+
+        def __init__(self, app):
+            self.app = app
+            self.debug = self.Debug(self)
+
+        def __call__(self, message):
+            # This is called when the instance itself is called like a function
+            self.app.debug_log.append({"type": "INFO", "message": message})
+            if hasattr(self.app, "_debug_container"):
+                with self.app._debug_container:
+                    ui.label(message).classes(self.info_classes)
+                self.app._debug_container.scroll_to(percent=100)
+
+        def rebuild(self):
+            """rebuld the log entries"""
+            if hasattr(self.app, "_debug_container"):
+                with self.app._debug_container:
+                    for entry in self.app.debug_log:
+                        if entry["type"] == "INFO":
+                            ui.label(entry["message"]).classes(self.info_classes)
+                        elif entry["type"] == "DEBUG":
+                            ui.label(entry["message"]).classes(self.debug_classes)
+                self.app._debug_container.scroll_to(percent=100)
+
+        class Debug:
+            def __init__(self, outer):
+                self.app = outer.app
+                self.debug_classes = outer.debug_classes
+                self.info_classes = outer.info_classes
+
+            def __call__(self, message):
+                # This is called when the instance itself is called like a function
+                self.app.debug_log.append({"type": "DEBUG", "message": message})
+                if hasattr(self.app, "_debug_container"):
+                    with self.app._debug_container:
+                        ui.label(f"DEBUG: {message}").classes(self.debug_classes)
+                    self.app._debug_container.scroll_to(percent=100)
 
 
 if __name__ in {"__main__", "__mp_main__"}:
