@@ -11,6 +11,7 @@ from pygments.formatters import HtmlFormatter
 from config import settings
 from mchat.history import HistoryContainer
 from mchat.llm import AutogenManager, ModelManager
+from mchat.statusbar import StatusContainer
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
@@ -63,12 +64,50 @@ class WebChatApp:
     # The main area for chat communicaitons
     _message_container: ui.element | None = None
 
-    # stubbing out logging
-    log = print
+    class Log:
+        info_classes = "bg-primary"
+        debug_classes = "bg-warning"
+
+        def __init__(self, app):
+            self.app = app
+            self.debug = self.Debug(self)
+
+        def __call__(self, message):
+            # This is called when the instance itself is called like a function
+            self.app.debug_log.append({"type": "INFO", "message": message})
+            if hasattr(self.app, "_debug_container"):
+                with self.app._debug_container:
+                    ui.label(message).classes(self.info_classes)
+                self.app._debug_container.scroll_to(percent=100)
+
+        def rebuild(self):
+            """rebuld the log entries"""
+            if hasattr(self.app, "_debug_container"):
+                with self.app._debug_container:
+                    for entry in self.app.debug_log:
+                        if entry["type"] == "INFO":
+                            ui.label(entry["message"]).classes(self.info_classes)
+                        elif entry["type"] == "DEBUG":
+                            ui.label(entry["message"]).classes(self.debug_classes)
+                self.app._debug_container.scroll_to(percent=100)
+
+        class Debug:
+            def __init__(self, outer):
+                self.app = outer.app
+                self.debug_classes = outer.debug_classes
+                self.info_classes = outer.info_classes
+
+            def __call__(self, message):
+                # This is called when the instance itself is called like a function
+                self.app.debug_log.append({"type": "DEBUG", "message": message})
+                if hasattr(self.app, "_debug_container"):
+                    with self.app._debug_container:
+                        ui.label(f"DEBUG: {message}").classes(self.debug_classes)
+                    self.app._debug_container.scroll_to(percent=100)
 
     def handle_exception(self, e: Exception) -> None:
         """callbacks don't propogate excecptions, so this sends them to ui.notify"""
-        self.log(f"Exception: {e}")
+        self.logger(f"Exception: {e}")
         ui.notify(f"Exception: {e}", type="warning")
 
     def run(self):
@@ -328,7 +367,7 @@ class WebChatApp:
             # check to see if the name is an llm or image model
             if model in self.available_llm_models:
                 self.llm_model_name = model
-                # self.log.debug(f"switching to llm model {model}")
+                self.logger.debug(f"switching to llm model {model}")
                 try:
                     await self.set_agent_and_model(
                         model=model, model_context="preserve", update_ui=True
@@ -351,7 +390,7 @@ class WebChatApp:
                 return
             elif model in self.available_image_models:
                 self.image_model_name = model
-                # self.log.debug(f"switching to image model {model}")
+                self.logger(f"switching to image model {model}")
                 self._reinitialize_image_model()
                 await self.add_to_chat_message(
                     role="assistant",
@@ -441,7 +480,10 @@ class WebChatApp:
 
     def __init__(self) -> None:
         # current debug log
-        self.debug_log = ""
+        self.debug_log = []
+        self.logger = self.Log(
+            self
+        )  # note: logging will not work until UI is initialized
 
         self.history_container: HistoryContainer | None = None
 
@@ -542,6 +584,7 @@ class WebChatApp:
                 "flex items-center justify-between bg-dark"
             ):
                 ui.label("MChat")
+                self._status_container = StatusContainer()
                 ui.switch("dark mode").bind_value(dark_mode).props(
                     "color=secondary"
                 ).classes("ml-auto")
@@ -569,6 +612,7 @@ class WebChatApp:
                 # .style("background-color: #ebf1fa")
             ):
                 ui.label("DEBUG")
+                self._debug_container = ui.scroll_area().classes("h-full p-4")
 
             # Footer and Input Area
             # with ui.footer().style("background-color: #3874c8"):
@@ -600,6 +644,11 @@ class WebChatApp:
                         text.props('input-class="h-14"')
                         # text.on("keydown.enter", send)
                         text.on("keydown.enter", _enter)
+
+            self.logger.rebuild()
+
+        self.logger("Starting MChat")
+        self.logger.debug("Debug logging enabled")
 
     async def load_record(self, record):
         """Load a record into the chat, called from the history container"""
@@ -725,8 +774,8 @@ class WebChatApp:
         # if update_ui and self.query_one(StatusBar).model != model:
         #     self.query_one(StatusBar).model = model
 
-        # self.log.debug(f"Agent set to {agent}")
-        # self.log.debug(f"Model set to {self.ag.model}")
+        self.logger(f"Agent set to {agent}")
+        self.logger(f"Model set to {self.ag.model}")
 
         # debug_pane = self.query_one(DebugPane)
         # # debug_pane.update_status()
