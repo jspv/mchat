@@ -1,7 +1,7 @@
 import logging
 import time
 from io import BytesIO
-from typing import Dict, List
+from typing import Annotated, Dict, List
 
 import requests
 from bs4 import BeautifulSoup
@@ -11,8 +11,11 @@ from config import settings
 
 
 def google_search(
-    query: str, num_results: int = 5, max_chars: int = 1000, log_file: str | None = None
-) -> List[Dict]:
+    query: Annotated[str, "Search query"],
+    num_results: Annotated[int, "Number of results to fetch"] = 5,
+    max_chars: Annotated[int, "Maximum characters to extract from content"] = 1000,
+    log_file: Annotated[str | None, "File to log search results"] = None,
+) -> Annotated[List[Dict], "A list of enriched search results"]:
     """
     Perform a Google Custom Search and fetch enriched results.
 

@@ -1,10 +1,15 @@
-import pandas as pd
+from typing import Annotated
+
 from fredapi import Fred
 
 from config import settings
 
 
-def fetch_fred_data(series: str, start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_fred_data(
+    series: Annotated[str, "FRED series ID"],
+    start_date: Annotated[str, "Start date in 'YYYY-MM-DD' format"],
+    end_date: Annotated[str, "End date in 'YYYY-MM-DD' format"],
+) -> dict:
     """
     Fetch data from the Federal Reserve Economic Data (FRED) API.
 
@@ -14,7 +19,7 @@ def fetch_fred_data(series: str, start_date: str, end_date: str) -> pd.DataFrame
         end_date (str): End date in "YYYY-MM-DD" format.
 
     Returns:
-        pd.DataFrame: FRED data as a pandas DataFrame.
+        dict: FRED data as a JSON-serializable dictionary.
     """
     # Fetch FRED API key
     api_key = settings.get("fred_api_key", None)
@@ -29,4 +34,8 @@ def fetch_fred_data(series: str, start_date: str, end_date: str) -> pd.DataFrame
     data = fred.get_series(
         series, observation_start=start_date, observation_end=end_date
     )
-    return data.to_frame()
+
+    # Convert DataFrame to JSON
+    data_json = data.to_json(orient="table")
+
+    return data_json

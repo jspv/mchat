@@ -93,12 +93,14 @@ class WebChatApp:
 
         # Get an object to manage the AI models
         self.mm = ModelManager()
+        self.mm.logger = self.logger
 
         # Get an object to manage autogen
         self.ag = AutogenManager(
             message_callback=self.on_llm_new_token,
             agents=self.agents,
         )
+        self.ag.logger = self.logger
         # load the llm models from settings - name: {key: value,...}
 
         self.available_llm_models = self.mm.available_chat_models
@@ -162,13 +164,13 @@ class WebChatApp:
 
             # Header
             with ui.header(elevated=True).classes(
-                "flex items-center justify-between bg-dark"
+                "flex items-center justify-between bg-dark p-1"
             ):
                 ui.label("MChat")
                 self.status_container = StatusContainer(app=self)
                 ui.switch("dark mode").bind_value(dark_mode).props(
                     "color=secondary"
-                ).classes("ml-auto")
+                ).classes("ml-auto").props("dense")
                 ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
                     "flat color=white"
                 )
@@ -199,6 +201,23 @@ class WebChatApp:
             # with ui.footer().style("background-color: #3874c8"):
             with ui.footer():
                 with ui.row().classes("w-full no-wrap items-center"):
+                    with ui.column(align_items="stretch gap-1"):
+                        self.end_button = (
+                            ui.button("End", color="warning")
+                            .classes("p-0")
+                            .props("text-color=black dense")
+                            .on_click(self.end_button_pressed)
+                        )
+                        self.end_button.enabled = False
+
+                        self.esc_button = (
+                            ui.button("ESC", color="negative")
+                            .props("text-color=black dense")
+                            .classes("p-0")
+                            .on_click(self.esc_button_pressed)
+                        )
+                        self.esc_button.enabled = False
+
                     placeholder = "Type your question here"
                     with ui.textarea(placeholder=placeholder) as text:
 
@@ -214,10 +233,14 @@ class WebChatApp:
                                     await self.add_to_chat_message(
                                         role="user", message=question
                                     )
+                                self.esc_button.enabled = True
+                                self.end_button.enabled = True
                                 await self.ask_question(question)
                                 # spinner may be gone if commands changed the session
                                 if self._spinner.is_deleted is False:
                                     self._spinner.delete()
+                                self.esc_button.enabled = False
+                                self.end_button.enabled = False
                                 # await self.end_chat_turn(role="user")
 
                         text.props("rounded outlined input-class=mx-3")
@@ -239,7 +262,6 @@ class WebChatApp:
     def current_agent(self, agent: str):
         self.logger(f"setting agent to {agent}")
         asyncio.create_task(self.set_agent_and_model(agent=agent))
-        ui.notify(f"Agent set to {agent}", type="info")
 
     @property
     def current_compatible_models(self):
@@ -265,7 +287,6 @@ class WebChatApp:
             )
         self.logger(f"setting model to {model}")
         asyncio.create_task(self.set_agent_and_model(model=model))
-        ui.notify(f"Model set to {model}", type="info")
 
     def handle_exception(self, e: Exception) -> None:
         """callbacks don't propogate excecptions, so this sends them to ui.notify"""
@@ -454,12 +475,9 @@ class WebChatApp:
                         message=f" - *{agent}* (current)\n",
                         agent_name="meta",
                     )
-
                 else:
-                    (
-                        await self.add_to_chat_message(
-                            role="assistant", message=f" - {agent}\n", agent_name="meta"
-                        ),
+                    await self.add_to_chat_message(
+                        role="assistant", message=f" - {agent}\n", agent_name="meta"
                     )
             await self.end_chat_turn(role="meta")
             return
@@ -628,6 +646,7 @@ class WebChatApp:
         try:
             await self.ag.ask(question)
         except Exception as e:
+            self.logger.debug(f"Error running autogen: {e}")
             await self.add_to_chat_message(
                 role="assistant",
                 message=f"Error running autogen: {e}",
@@ -705,6 +724,25 @@ class WebChatApp:
                 )
                 await self.end_chat_turn(role="meta")
 
+    async def end_button_pressed(self):
+        """Stop the running agent"""
+        ui.notify("Will stop the agent on next turn", type="info")
+        self.ag.terminate()
+        self.logger.debug("Agent stopped via End button")
+        await self.end_chat_turn(role="assistant")
+
+    async def esc_button_pressed(self):
+        """Hard-terminate the running agent"""
+        ui.notify("Terminating the agent", type="warning")
+        self.ag.cancel()
+        self.logger.debug("Agent terminated via ESC button")
+        # cleanup
+        if self._spinner.is_deleted is False:
+            self._spinner.delete()
+        self.esc_button.enabled = False
+        self.end_button.enabled = False
+        await self.end_chat_turn(role="assistant")
+
     async def set_agent_and_model(
         self,
         agent: str | None = None,
@@ -755,22 +793,6 @@ class WebChatApp:
             await self.ag.update_memory(model_context)
 
         self.current_question = ""
-
-        # # if setting streaming is supported, enable the streaming selector
-        # if self.ag.stream_tokens is not None:
-        #     self.query_one(StatusBar).enable_stream_selector()
-        #     self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
-        # else:
-        #     self.query_one(StatusBar).disable_stream_selector()
-
-        # # update the agent in the status bar if needed
-        # # (e.g. if the agent was set by command)
-        # if update_ui and self.query_one(StatusBar).agent != agent:
-        #     self.query_one(StatusBar).agent = agent
-
-        # # show the current model if not already set
-        # if update_ui and self.query_one(StatusBar).model != model:
-        #     self.query_one(StatusBar).model = model
 
         self.logger(f"Agent set to {agent}")
         self.logger(f"Model set to {self.ag.model}")

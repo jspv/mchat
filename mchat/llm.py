@@ -889,6 +889,7 @@ class AutogenManager(object):
                         continue
                     # if we're streaming no need to show TextMessage, we got the
                     # tokens already
+                    self.log(f"TextMessage: {response.content}")
                     if not self._stream_tokens:
                         await self._message_callback(
                             response.content, agent=response.source, complete=True
@@ -919,6 +920,7 @@ class AutogenManager(object):
                     await self._message_callback(tool_message, agent=response.source)
                     continue
                 if isinstance(response, ToolCallExecutionEvent):
+                    self.log(f"tool call result: {response.content}")
                     await self._message_callback(
                         "done", agent=response.source, complete=True
                     )

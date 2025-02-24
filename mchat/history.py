@@ -31,7 +31,7 @@ class HistorySessionBox(object):
             self.get_relative_date(self.record.created) if self.record.turns else "..."
         )
 
-        with ui.card().classes("w-full bg-secondary") as self.box:
+        with ui.card().classes("w-full bg-secondary p-2") as self.box:
             with ui.row(align_items="center").classes("w-full justify-end"):
                 self.boxlabel = ui.label(session_box_label).classes(
                     "justify-self-start"
