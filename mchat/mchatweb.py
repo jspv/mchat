@@ -81,6 +81,8 @@ class WebChatApp:
         self.status_container: StatusContainer | None = None
         self.chatbox: ChatTurn | None = None
 
+        self.ui_is_busy = False
+
         # parse arguments
         self.parse_args_and_initialize()
         # load agents
@@ -158,6 +160,15 @@ class WebChatApp:
                 f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'
             )
 
+            ui.add_head_html("""
+            <style>
+                .q-btn:disabled {
+                    background-color: grey !important;
+                    opacity: 0.3 !important;
+                }
+            </style>
+            """)
+
             self.message_container = ui.element("div").classes(
                 "w-full max-w-4xl mx-auto flex-grow items-stretch"
             )
@@ -182,7 +193,7 @@ class WebChatApp:
             # populate the history container
 
             self.history_container = HistoryContainer(
-                new_record_callback=self.load_record, new_label="New Session"
+                new_record_callback=self.load_record, new_label="New Session", app=self
             )
             # Load the active conversation record
             self.record = self.history_container.active_record
@@ -207,6 +218,7 @@ class WebChatApp:
                             .classes("p-0")
                             .props("text-color=black dense")
                             .on_click(self.end_button_pressed)
+                            .bind_enabled_from(self, "ui_is_busy")
                         )
                         self.end_button.enabled = False
 
@@ -215,6 +227,7 @@ class WebChatApp:
                             .props("text-color=black dense")
                             .classes("p-0")
                             .on_click(self.esc_button_pressed)
+                            .bind_enabled_from(self, "ui_is_busy")
                         )
                         self.esc_button.enabled = False
 
@@ -233,14 +246,12 @@ class WebChatApp:
                                     await self.add_to_chat_message(
                                         role="user", message=question
                                     )
-                                self.esc_button.enabled = True
-                                self.end_button.enabled = True
+                                self.ui_is_busy = True
                                 await self.ask_question(question)
                                 # spinner may be gone if commands changed the session
+                                self.ui_is_busy = False
                                 if self._spinner.is_deleted is False:
                                     self._spinner.delete()
-                                self.esc_button.enabled = False
-                                self.end_button.enabled = False
                                 # await self.end_chat_turn(role="user")
 
                         text.props("rounded outlined input-class=mx-3")
@@ -249,6 +260,7 @@ class WebChatApp:
                         # text.on("keydown.enter", send)
                         text.on("keydown.enter", _enter)
 
+                    text.bind_enabled_from(self, "ui_is_busy", backward=lambda x: not x)
             self.logger.rebuild()
 
         self.logger("Starting MChat")
@@ -296,7 +308,12 @@ class WebChatApp:
     def run(self):
         # callbacks don't propogate excecptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
-        ui.run(port=8881, title="MChat - Mulit-Model Chat Framework", dark=True)
+        ui.run(
+            port=8881,
+            title="MChat - Mulit-Model Chat Framework",
+            favicon="🤖",
+            dark=True,
+        )
 
     async def on_llm_new_token(self, token: str, **kwargs):
         """Callback for new tokens from the autogen manager"""
@@ -739,9 +756,8 @@ class WebChatApp:
         # cleanup
         if self._spinner.is_deleted is False:
             self._spinner.delete()
-        self.esc_button.enabled = False
-        self.end_button.enabled = False
         await self.end_chat_turn(role="assistant")
+        self.ui_is_busy = False
 
     async def set_agent_and_model(
         self,

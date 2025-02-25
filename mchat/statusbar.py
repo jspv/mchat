@@ -9,6 +9,7 @@ class StatusContainer:
             self.agent = (
                 ui.select(self.app.chooseable_agents, value=self.app.current_agent)
                 .bind_value(self.app, "current_agent")
+                .bind_enabled_from(self.app, "ui_is_busy", backward=lambda x: not x)
                 .on_value_change(lambda: self.models.refresh())
                 .props("color=secondary rounded standout dense")
             )
@@ -17,6 +18,7 @@ class StatusContainer:
                 ui.switch("Streaming", value=False)
                 .props("color=secondary left-label dense")
                 .bind_value(self.app.ag, "stream_tokens")
+                .bind_enabled_from(self.app, "ui_is_busy", backward=lambda x: not x)
             )
             self.app.logger.debug(f"streaming: {self.app.ag.stream_tokens}")
             self.text = ui.label("Model:")
@@ -27,5 +29,6 @@ class StatusContainer:
         self.model = (
             ui.select(self.app.current_compatible_models)
             .bind_value(self.app, "current_llm_model")
+            .bind_enabled_from(self.app, "ui_is_busy", backward=lambda x: not x)
             .props("color=secondary rounded standout dense")
         )

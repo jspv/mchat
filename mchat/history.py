@@ -148,11 +148,12 @@ class HistoryContainer:
     )
 
     def __init__(
-        self, new_record_callback: CallbackType = None, new_label: str = ""
+        self, new_record_callback: CallbackType, new_label: str, app: object
     ) -> None:
         self.sessions: list[HistorySessionBox] = []
         self.new_label = new_label
         self.new_record_callback = new_record_callback
+        self.app = app
         self._active_session: HistorySessionBox | None = None
 
         HistorySessionBox.set_callback(self.history_card_clicked_callback)
@@ -314,9 +315,16 @@ class HistoryContainer:
         action: str = click_args["action"]
         session_box: HistorySessionBox = click_args["session_box"]
 
+        # if the ui is busy, ignore the click
+        if self.app.ui_is_busy:
+            ui.notify("busy", color="red")
+            return
+
         assert action in ["load", "copy", "delete"]
 
         if action == "load":
+            if self.active_session == session_box:
+                return
             self.active_session = session_box
             await self.new_record_callback(session_box.record)
             return
