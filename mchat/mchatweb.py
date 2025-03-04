@@ -13,6 +13,8 @@ from mchat.history import HistoryContainer
 from mchat.llm import AutogenManager, ModelManager
 from mchat.statusbar import StatusContainer
 
+from .styles import colors as c
+
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
 
@@ -35,11 +37,13 @@ class ChatTurn(object):
         with self.container:
             if question and role == "user":
                 with ui.row().classes("mt-4 mb-1 justify-end"):
-                    ui.label(f"{question}").classes("bg-secondary p-4 rounded-lg")
+                    ui.label(f"{question}").classes(
+                        f"bg-{c.accent} p-4 dark rounded-3xl text-body1"
+                    )
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
                 self.chat_response_content = ui.element("div").classes(
-                    "bg-primary p-2 rounded-lg"
+                    "bg-transparent p-2 text-body1"
                 )
             # this keeps the area invisible until we get content
             self.chat_response.visible = False
@@ -146,18 +150,22 @@ class WebChatApp:
             dark_mode = ui.dark_mode(True)
             ui.colors(
                 secondary="#26A69A",
-                accent="#dd4b39",
+                # accent="#dd4b39",
+                accent="#2e2e2e",
                 dark="#171717",
                 positive="#21BA45",
                 negative="#C10015",
                 info="#31CCEC",
                 warning="#F2C037",
-                primary="#212121",
+                # primary="#212121",
+                darkpage="#121212",
+                lightpage="#FFFFFF",
+                historycard="#2e2e2e",
             )
 
             # Below allows code blocks in markdown to look nice
             ui.add_head_html(
-                f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'
+                f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'  # noqa: E501
             )
 
             ui.add_head_html("""
@@ -175,15 +183,27 @@ class WebChatApp:
 
             # Header
             with ui.header(elevated=True).classes(
-                "flex items-center justify-between bg-dark p-1"
+                f"flex items-center justify-between bg-{c.lightpage} dark:bg-{c.darkpage}  p-1"
             ):
-                ui.label("MChat")
+                ui.label("MChat").classes(
+                    f"text-{c.darkpage} dark:text-{c.lightpage} text-lg"
+                )
                 self.status_container = StatusContainer(app=self)
-                ui.switch("dark mode").bind_value(dark_mode).props(
-                    "color=secondary"
-                ).classes("ml-auto").props("dense")
+                ui.button(icon="dark_mode", on_click=dark_mode.enable).props(
+                    "outline round"
+                ).tooltip("Dark Mode").bind_visibility_from(
+                    dark_mode, "value", value=False
+                )
+                ui.button(icon="light_mode", on_click=dark_mode.disable).props(
+                    "outline round"
+                ).tooltip("Light Mode").bind_visibility_from(
+                    dark_mode, "value", value=True
+                )
+                # ui.switch("dark mode").bind_value(dark_mode).props(
+                #     "color=secondary"
+                # ).classes("ml-auto").props("dense")
                 ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
-                    "flat color=white"
+                    "flat"
                 )
                 # ui.button(on_click=lambda: ui.notify("Close"), icon="close").props(
                 #     "flat color=white"
@@ -200,7 +220,7 @@ class WebChatApp:
 
             # Right Drawer Debug Pane
             with (
-                ui.right_drawer(value=False, fixed=True).props(
+                ui.right_drawer(value=False, bottom_corner=True, fixed=True).props(
                     "bordered"
                 ) as right_drawer
                 # .style("background-color: #ebf1fa")
@@ -209,58 +229,80 @@ class WebChatApp:
                 self._debug_container = ui.scroll_area().classes("h-full p-4")
 
             # Footer and Input Area
-            # with ui.footer().style("background-color: #3874c8"):
-            with ui.footer():
-                with ui.row().classes("w-full no-wrap items-center"):
-                    with ui.column(align_items="stretch gap-1"):
-                        self.end_button = (
-                            ui.button("End", color="warning")
-                            .classes("p-0")
-                            .props("text-color=black dense")
-                            .on_click(self.end_button_pressed)
-                            .bind_enabled_from(self, "ui_is_busy")
+            # with ui.footer().style("background-color: warning"):
+            with (
+                (
+                    ui.footer().classes(
+                        f"bg-{c.lightpage} dark:bg-{c.darkpage} p-2 justify-center pt-0"
+                    )
+                )
+                # .classes("bg-warning")
+            ):
+                # with ui.row().classes("flex justify-center w-full"):
+                with ui.card().classes(
+                    "bg-accent rounded-3xl p-3 px-4 w-4/5 min-h-24 flex flex-col"
+                ) as card:
+                    with ui.column().classes(
+                        f"w-full bg-{c.input_l} dark:bg-{c.input_d}"
+                    ):
+                        with (
+                            ui.input(placeholder="How can I help?   ")
+                            .props(
+                                f"autogrow borderless standout='bg-{c.input_d}' autofocus input-class='bg-{c.input_d} text-white' dense"
+                            )
+                            .classes("w-full self-center text-body1") as text
+                        ):
+
+                            async def _enter(e: events.GenericEventArguments):
+                                if e.args["shiftKey"]:
+                                    return
+                                else:
+                                    # this is a new question
+                                    question = text.value
+                                    text.set_value("")
+                                    with self.message_container:
+                                        self._spinner = ui.spinner(color="secondary")
+                                        await self.add_to_chat_message(
+                                            role="user", message=question
+                                        )
+                                    self.ui_is_busy = True
+                                    await self.ask_question(question)
+                                    # spinner may be gone if commands changed the session
+                                    self.ui_is_busy = False
+                                    if self._spinner.is_deleted is False:
+                                        self._spinner.delete()
+                                    # await self.end_chat_turn(role="user")
+
+                            text.on(
+                                "keypress.enter",
+                                _enter,
+                                args=["shiftKey"],
+                            )
+
+                        # with ui.row():
+                        #     self.end_button = (
+                        #         ui.button("End", color="warning")
+                        #         .classes("p-0")
+                        #         .props("text-color=black dense")
+                        #         .on_click(self.end_button_pressed)
+                        #         .bind_enabled_from(self, "ui_is_busy")
+                        #     )
+                        #     self.end_button.enabled = False
+
+                        #     self.esc_button = (
+                        #         ui.button("ESC", color="negative")
+                        #         .props("text-color=black dense")
+                        #         .classes("p-0")
+                        #         .on_click(self.esc_button_pressed)
+                        #         .bind_enabled_from(self, "ui_is_busy")
+                        #     )
+                        #     self.esc_button.enabled = False
+
+                        # focus the input when the card is clicked
+                        card.on("click", lambda: text.run_method("focus"))
+                        text.bind_enabled_from(
+                            self, "ui_is_busy", backward=lambda x: not x
                         )
-                        self.end_button.enabled = False
-
-                        self.esc_button = (
-                            ui.button("ESC", color="negative")
-                            .props("text-color=black dense")
-                            .classes("p-0")
-                            .on_click(self.esc_button_pressed)
-                            .bind_enabled_from(self, "ui_is_busy")
-                        )
-                        self.esc_button.enabled = False
-
-                    placeholder = "Type your question here"
-                    with ui.textarea(placeholder=placeholder) as text:
-
-                        async def _enter(e: events.GenericEventArguments):
-                            if e.args["shiftKey"]:
-                                return
-                            else:
-                                # this is a new quesiton
-                                question = text.value
-                                text.value = ""
-                                with self.message_container:
-                                    self._spinner = ui.spinner(color="secondary")
-                                    await self.add_to_chat_message(
-                                        role="user", message=question
-                                    )
-                                self.ui_is_busy = True
-                                await self.ask_question(question)
-                                # spinner may be gone if commands changed the session
-                                self.ui_is_busy = False
-                                if self._spinner.is_deleted is False:
-                                    self._spinner.delete()
-                                # await self.end_chat_turn(role="user")
-
-                        text.props("rounded outlined input-class=mx-3")
-                        text.classes("w-full self-center")
-                        text.props('input-class="h-14"')
-                        # text.on("keydown.enter", send)
-                        text.on("keydown.enter", _enter)
-
-                    text.bind_enabled_from(self, "ui_is_busy", backward=lambda x: not x)
             self.logger.rebuild()
 
         self.logger("Starting MChat")
@@ -823,8 +865,8 @@ class WebChatApp:
         # await debug_pane.update_status()
 
     class Log:
-        info_classes = "bg-primary"
-        debug_classes = "bg-warning"
+        info_classes = ""
+        debug_classes = f"bg-{c.warning}"
 
         def __init__(self, app):
             self.app = app

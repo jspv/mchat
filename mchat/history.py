@@ -7,6 +7,8 @@ from nicegui import ui
 from mchat.Conversation import ConversationRecord
 from mchat.llm import LLMTools
 
+from .styles import colors as c
+
 # Define type alias for Callbacks
 CallbackType: TypeAlias = Callable[..., None] | None
 
@@ -31,7 +33,9 @@ class HistorySessionBox(object):
             self.get_relative_date(self.record.created) if self.record.turns else "..."
         )
 
-        with ui.card().classes("w-full bg-secondary p-2") as self.box:
+        with ui.card().classes(
+            f"w-full bg-{c.historycard_l} dark:bg-{c.historycard_d} p-2"
+        ) as self.box:
             with ui.row(align_items="center").classes("w-full justify-end"):
                 self.boxlabel = ui.label(session_box_label).classes(
                     "justify-self-start"
@@ -40,7 +44,7 @@ class HistorySessionBox(object):
 
                 self.copy_button = (
                     ui.button(icon="content_copy")
-                    .classes("bg-secondary w-8")
+                    .classes(f"bg-{c.secondary} w-8")
                     .on(
                         "click.stop",
                         lambda: self._call_callback(
@@ -51,7 +55,7 @@ class HistorySessionBox(object):
                 self.delete_button = (
                     ui.button(icon="delete")
                     .props("color=red")
-                    .classes("bg-secondary w-8")
+                    .classes(f"bg-{c.secondary} w-8")
                     .on(
                         "click.stop",
                         lambda: self._call_callback(
@@ -96,9 +100,10 @@ class HistorySessionBox(object):
     @active.setter
     def active(self, value: bool) -> None:
         self._active = value
-        self.box.classes(remove="bg-primary" if value else "bg-secondary")
-        self.box.classes("bg-secondary" if value else "bg-primary")
-        # self.box.update()
+        if value:
+            self.box.classes(f"!bg-{c.secondary}")
+        else:
+            self.box.classes(remove=f"!bg-{c.secondary}")
 
     async def _call_callback(self, *args, **kwargs) -> None:
         """Call the callback if it exists."""
