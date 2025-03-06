@@ -33,9 +33,6 @@ dependencies = [
 dev = ["poethepoet>=0.31.1", "ruff>=0.8.4", "textual-dev>=1.7.0"]
 
 [tool.uv.sources]
-autogen-core = { path = "../autogen/python/packages/autogen-core", editable = true }
-autogen-agentchat = { path = "../autogen/python/packages/autogen-agentchat", editable = true }
-autogen-ext = { path = "../autogen/python/packages/autogen-ext", editable = true }
 
 [tool.poe.tasks]
 mchat = "python -m mchat.mchat"
