@@ -5,7 +5,7 @@ from typing import Annotated, Dict, List
 
 import requests
 from bs4 import BeautifulSoup
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from config import settings
 

@@ -19,7 +19,6 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "autogen-ext[azure,openai]",
     "click>=8.1.7",
-    "pypdf2>=3.0.1",
     "aiofiles>=24.1.0",
     "playwright>=1.49.1",
     "pytest-playwright>=0.6.2",
@@ -27,6 +26,7 @@ dependencies = [
     "fredapi>=0.5.2",
     "nicegui>=2.11.1",
     "latex2mathml>=3.77.0",
+    "pypdf>=5.3.1",
 ]
 
 [dependency-groups]

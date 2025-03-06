@@ -3,7 +3,7 @@ import copy
 import http.client
 import logging
 from dataclasses import dataclass, fields
-from functools import partial, reduce
+from functools import reduce
 from typing import (
     AsyncIterable,
     Callable,
@@ -296,7 +296,7 @@ class ModelManager:
         filter = {"model_type": ["chat"]}
 
         # if agent doesn't specify a chat model, allow any chat model
-        model = agents[agent].get("model", self.default_chat_model)
+        # model = agents[agent].get("model", self.default_chat_model)
 
         # check if the agent needs tools
         if "tools" in agents[agent]:
@@ -679,7 +679,7 @@ class AutogenManager(object):
             # don't use tools if the model does't support them
             if (
                 not self.mm.get_tool_support(model_id)
-                or not self.model_client.capabilities["function_calling"]
+                or not self.model_client.model_info["function_calling"]
                 or "tools" not in agent_data
             ):
                 tools = None
@@ -813,7 +813,7 @@ class AutogenManager(object):
                 # don't use tools if the model does't support them
                 if (
                     not self.mm.get_tool_support(subagent_data["model"])
-                    or not model_client.capabilities["function_calling"]
+                    or not model_client.model_info["function_calling"]
                     or "tools" not in subagent_data
                 ):
                     tools = None
