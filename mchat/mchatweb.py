@@ -38,7 +38,7 @@ class ChatTurn(object):
             if question and role == "user":
                 with ui.row().classes("mt-4 mb-1 justify-end"):
                     ui.label(f"{question}").classes(
-                        f"bg-{c.accent} p-4 dark rounded-3xl text-body1"
+                        f"bg-{c.input_d} p-4 dark rounded-3xl text-body1"
                     )
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
@@ -47,6 +47,9 @@ class ChatTurn(object):
                 )
             # this keeps the area invisible until we get content
             self.chat_response.visible = False
+
+        # force scroll to the bottom
+        ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
 
     async def append_chunk(self, chunk: str):
         self.response += chunk
@@ -131,18 +134,25 @@ class WebChatApp:
         # set the agent and model
         self.default_agent = getattr(settings, "defaults.agent", "default")
 
-        asyncio.run(
-            self.set_agent_and_model(
+        # asyncio.run(
+        #     self.set_agent_and_model(
+        #         agent=self.default_agent,
+        #         model=self._current_llm_model,
+        #         temperature=self.llm_temperature,
+        #         model_context=None,
+        #     )
+        # )
+
+        # Define the main UI layout
+        @ui.page("/")
+        async def main_ui():
+            await self.set_agent_and_model(
                 agent=self.default_agent,
                 model=self._current_llm_model,
                 temperature=self.llm_temperature,
                 model_context=None,
             )
-        )
 
-        # Define the main UI layout
-        @ui.page("/")
-        def main_ui():
             # the queries below are used to expand the contend down to the footer
             # (content can then use flex-grow to expand)
             ui.query(".q-page").classes("flex")
@@ -183,31 +193,29 @@ class WebChatApp:
 
             # Header
             with ui.header(elevated=True).classes(
-                f"flex items-center justify-between bg-{c.lightpage} dark:bg-{c.darkpage}  p-1"
+                f"flex items-center justify-between bg-{c.lightpage} "
+                f"dark:bg-{c.darkpage}  p-1"
             ):
                 ui.label("MChat").classes(
                     f"text-{c.darkpage} dark:text-{c.lightpage} text-lg"
                 )
                 self.status_container = StatusContainer(app=self)
-                ui.button(icon="dark_mode", on_click=dark_mode.enable).props(
-                    "outline round"
-                ).tooltip("Dark Mode").bind_visibility_from(
-                    dark_mode, "value", value=False
-                )
-                ui.button(icon="light_mode", on_click=dark_mode.disable).props(
-                    "outline round"
-                ).tooltip("Light Mode").bind_visibility_from(
-                    dark_mode, "value", value=True
-                )
-                # ui.switch("dark mode").bind_value(dark_mode).props(
-                #     "color=secondary"
-                # ).classes("ml-auto").props("dense")
-                ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
-                    "flat"
-                )
-                # ui.button(on_click=lambda: ui.notify("Close"), icon="close").props(
-                #     "flat color=white"
-                # )
+
+                with ui.row().classes("gap-2"):
+                    ui.button(icon="dark_mode", on_click=dark_mode.enable).props(
+                        "outline round"
+                    ).tooltip("Dark Mode").bind_visibility_from(
+                        dark_mode, "value", value=False
+                    )
+                    ui.button(icon="light_mode", on_click=dark_mode.disable).props(
+                        "outline round"
+                    ).tooltip("Light Mode").bind_visibility_from(
+                        dark_mode, "value", value=True
+                    )
+
+                    ui.button(on_click=lambda: right_drawer.toggle(), icon="adb").props(
+                        "flat"
+                    )
 
             # Left drawer History Container, this will aslo load the database and
             # populate the history container
@@ -229,28 +237,26 @@ class WebChatApp:
                 self._debug_container = ui.scroll_area().classes("h-full p-4")
 
             # Footer and Input Area
-            # with ui.footer().style("background-color: warning"):
-            with (
-                (
-                    ui.footer().classes(
-                        f"bg-{c.lightpage} dark:bg-{c.darkpage} p-2 justify-center pt-0"
-                    )
-                )
-                # .classes("bg-warning")
+            with ui.footer().classes(
+                f"bg-{c.lightpage} dark:bg-{c.darkpage} p-2 justify-center pt-0"
             ):
-                # with ui.row().classes("flex justify-center w-full"):
                 with ui.card().classes(
-                    "bg-accent rounded-3xl p-3 px-4 w-4/5 min-h-24 flex flex-col"
+                    "bg-accent rounded-3xl p-3 px-4 w-4/5 min-h-20 flex flex-col"
                 ) as card:
                     with ui.column().classes(
-                        f"w-full bg-{c.input_l} dark:bg-{c.input_d}"
+                        f"bg-{c.input_l} dark:bg-{c.input_d} gap-0 w-full"
                     ):
                         with (
-                            ui.input(placeholder="How can I help?   ")
+                            ui.textarea(placeholder="How can I help?")
                             .props(
-                                f"autogrow borderless standout='bg-{c.input_d}' autofocus input-class='bg-{c.input_d} text-white' dense"
+                                f"dark autogrow borderless standout='bg-{c.input_d}' "
+                                f"input-class='max-h-40 bg-{c.input_d} text-white' "
+                                "dense autofocus"
                             )
-                            .classes("w-full self-center text-body1") as text
+                            .classes("w-full self-center text-body1")
+                            .bind_enabled_from(
+                                self, "ui_is_busy", backward=lambda x: not x
+                            ) as input_area
                         ):
 
                             async def _enter(e: events.GenericEventArguments):
@@ -258,51 +264,61 @@ class WebChatApp:
                                     return
                                 else:
                                     # this is a new question
-                                    question = text.value
-                                    text.set_value("")
+                                    question = input_area.value
+                                    input_area.set_value("")
+                                    await asyncio.sleep(0.1)  # Fix to give ui time
+                                    self.ui_is_busy = True
+
                                     with self.message_container:
                                         self._spinner = ui.spinner(color="secondary")
                                         await self.add_to_chat_message(
                                             role="user", message=question
                                         )
-                                    self.ui_is_busy = True
                                     await self.ask_question(question)
-                                    # spinner may be gone if commands changed the session
-                                    self.ui_is_busy = False
+                                    # spinner may be gone if the session changed
                                     if self._spinner.is_deleted is False:
                                         self._spinner.delete()
-                                    # await self.end_chat_turn(role="user")
+                                    self.ui_is_busy = False
 
-                            text.on(
+                            input_area.on(
                                 "keypress.enter",
                                 _enter,
                                 args=["shiftKey"],
                             )
 
-                        # with ui.row():
-                        #     self.end_button = (
-                        #         ui.button("End", color="warning")
-                        #         .classes("p-0")
-                        #         .props("text-color=black dense")
-                        #         .on_click(self.end_button_pressed)
-                        #         .bind_enabled_from(self, "ui_is_busy")
-                        #     )
-                        #     self.end_button.enabled = False
+                        # button row
+                        with ui.row(align_items="end").classes(
+                            "w-full items-end justify-end items-stretch"
+                        ):
+                            self.end_button = (
+                                ui.button(icon="stop", color="warning")
+                                .classes("p-0")
+                                .props("outline round dense")
+                                .on_click(self.end_button_pressed)
+                                .bind_visibility_from(self, "ui_is_busy")
+                                .tooltip("Stop the agent on next turn")
+                            )
 
-                        #     self.esc_button = (
-                        #         ui.button("ESC", color="negative")
-                        #         .props("text-color=black dense")
-                        #         .classes("p-0")
-                        #         .on_click(self.esc_button_pressed)
-                        #         .bind_enabled_from(self, "ui_is_busy")
-                        #     )
-                        #     self.esc_button.enabled = False
+                            self.esc_button = (
+                                ui.button(icon="cancel", color="red")
+                                .props("outline round dense")
+                                .classes("p-0")
+                                .on_click(self.esc_button_pressed)
+                                .bind_visibility_from(self, "ui_is_busy")
+                                .tooltip("Immediately terminate the agent")
+                            )
 
-                        # focus the input when the card is clicked
-                        card.on("click", lambda: text.run_method("focus"))
-                        text.bind_enabled_from(
-                            self, "ui_is_busy", backward=lambda x: not x
-                        )
+                            self.submit_button = (
+                                ui.button(icon="arrow_upward")
+                                .props("outline round dense")
+                                .on("click", _enter, args=["shiftKey"])
+                                .bind_visibility_from(
+                                    self, "ui_is_busy", backward=lambda x: not x
+                                )
+                            )
+
+                        # focus the input when anywhere on the card is clicked
+                        card.on("click", lambda: input_area.run_method("focus"))
             self.logger.rebuild()
 
         self.logger("Starting MChat")
@@ -785,14 +801,14 @@ class WebChatApp:
 
     async def end_button_pressed(self):
         """Stop the running agent"""
-        ui.notify("Will stop the agent on next turn", type="info")
+        ui.notify("Will stop the agent on next turn", type="warning")
         self.ag.terminate()
         self.logger.debug("Agent stopped via End button")
         await self.end_chat_turn(role="assistant")
 
     async def esc_button_pressed(self):
         """Hard-terminate the running agent"""
-        ui.notify("Terminating the agent", type="warning")
+        ui.notify("Terminating the agent", type="negative")
         self.ag.cancel()
         self.logger.debug("Agent terminated via ESC button")
         # cleanup
@@ -836,9 +852,14 @@ class WebChatApp:
         if model_context == "preserve":
             model_context = await self.ag.get_memory()
 
-        self.conversation = await self.ag.new_conversation(
-            agent=agent, model_id=model, temperature=temperature
-        )
+        try:
+            self.conversation = await self.ag.new_conversation(
+                agent=agent, model_id=model, temperature=temperature
+            )
+        except Exception as e:
+            self.logger(f"Error setting agent and model: {e}")
+            ui.notify(f"Error setting agent and model: {e}", type="warning")
+            return
 
         self._current_agent = agent
         # _current_compatible_models is updated in the setter

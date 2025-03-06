@@ -3,7 +3,7 @@ import copy
 import http.client
 import logging
 from dataclasses import dataclass, fields
-from functools import partial
+from functools import partial, reduce
 from typing import (
     AsyncIterable,
     Callable,
@@ -27,7 +27,11 @@ from autogen_agentchat.messages import (
     ToolCallRequestEvent,
     ToolCallSummaryMessage,
 )
-from autogen_agentchat.teams import RoundRobinGroupChat, SelectorGroupChat
+from autogen_agentchat.teams import (
+    MagenticOneGroupChat,
+    RoundRobinGroupChat,
+    SelectorGroupChat,
+)
 from autogen_core import CancellationToken
 from autogen_core.models import (
     AssistantMessage,
@@ -488,8 +492,8 @@ class AutogenManager(object):
                 description=(
                     "Generate an image from a prompt, it     will return a url and a "
                     "revised_prompt if the tool decided to enhance the prompt. Do not "
-                    "alter the url in any way, and provide information back to the user "
-                    "if the prompt was changed"
+                    "alter the url in any way, and provide information back to the user"
+                    " if the prompt was changed"
                 ),
             )
         # else:
@@ -659,7 +663,7 @@ class AutogenManager(object):
         )
 
         if "type" in agent_data and agent_data["type"] == "team":
-            # Team-base Agents
+            # Team-based Agents
             self.agent_team = self._create_team(agent_data["team_type"], agent_data)
             self.agent = self.agent_team._participants[0]
 
@@ -744,17 +748,29 @@ class AutogenManager(object):
                 self._set_agent_streaming()
 
             # Build the termination conditions
-            max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 10
-            max_message_terminator = MaxMessageTermination(max_messages=max_rounds)
+            terminators = []
+            max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
+            terminators.append(MaxMessageTermination(max_rounds))
+            if "termination_message" in agent_data:
+                terminators.append(
+                    TextMentionTermination(agent_data["termination_message"])
+                )
             self.terminator = ExternalTermination()  # for custom terminations
-            termination = max_message_terminator | self.terminator
+            terminators.append(self.terminator)
+            termination = reduce(lambda x, y: x | y, terminators)
+
+            # if there is only one agent, set oneshot to true
+            self.oneshot = (
+                True if "oneshot" not in agent_data else agent_data["oneshot"]
+            )
+
             self.agent_team = RoundRobinGroupChat(
                 [self.agent], termination_condition=termination
             )
 
     def _create_team(
         self, team_type: str, agent_data: dict
-    ) -> RoundRobinGroupChat | SelectorGroupChat:
+    ) -> RoundRobinGroupChat | SelectorGroupChat | MagenticOneGroupChat:
         """Create a team of agents
 
         Parameters
@@ -773,10 +789,10 @@ class AutogenManager(object):
         agents = []
         for agent in agent_data["agents"]:
             subagent_data = self._agents[agent]
-            if "model" in subagent_data:
-                model_client = self.mm.open_model(subagent_data["model"])
-            else:
-                model_client = self.mm.open_model(self.mm.default_chat_model)
+            if "model" not in subagent_data:
+                subagent_data["model"] = self.mm.default_chat_model
+            model_client = self.mm.open_model(subagent_data["model"])
+
             if "type" in subagent_data and subagent_data["type"] == "autogen-agent":
                 if subagent_data["name"] == "websurfer":
                     agents.append(
@@ -819,20 +835,29 @@ class AutogenManager(object):
                 )
 
         # constuct the team
+        terminators = []
         max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
-
-        text_termination = TextMentionTermination(agent_data["termination_message"])
-        max_message_termination = MaxMessageTermination(max_rounds)
+        terminators.append(MaxMessageTermination(max_rounds))
+        if "termination_message" in agent_data:
+            terminators.append(
+                TextMentionTermination(agent_data["termination_message"])
+            )
         self.terminator = ExternalTermination()  # for custom terminations
+        terminators.append(self.terminator)
+        termination = reduce(lambda x, y: x | y, terminators)
 
-        termination = text_termination | max_message_termination | self.terminator
+        if "oneshot" in agent_data:
+            self.oneshot = agent_data["oneshot"]
+        else:
+            self.oneshot = True if len(agents) == 1 else False
 
         if team_type == "round_robin":
             return RoundRobinGroupChat(agents, termination_condition=termination)
         elif team_type == "selector":
             if "team_model" not in agent_data:
-                raise ValueError("Error in team Selector team must have a team_model")
-            team_model = self.mm.open_model(agent_data["team_model"])
+                team_model = self.mm.open_model(self.mm.default_chat_model)
+            else:
+                team_model = self.mm.open_model(agent_data["team_model"])
             allow_repeated_speaker = agent_data.get("allow_repeated_speaker", False)
 
             if "selector_prompt" in agent_data:
@@ -850,6 +875,14 @@ class AutogenManager(object):
                     allow_repeated_speaker=allow_repeated_speaker,
                     termination_condition=termination,
                 )
+        elif team_type == "magnetic_one":
+            if "team_model" not in agent_data:
+                team_model = self.mm.open_model(self.mm.default_chat_model)
+            else:
+                team_model = self.mm.open_model(agent_data["team_model"])
+            return MagenticOneGroupChat(
+                agents, model_client=team_model, termination_condition=termination
+            )
         else:
             raise ValueError(f"Unknown team type {team_type}")
 
@@ -935,10 +968,9 @@ class AutogenManager(object):
             return response
 
         self._cancelation_token = CancellationToken()
-        oneshot = True if len(self.agent_team._participants) == 1 else False
         result: TaskResult = await field_responses(
             self.agent_team.run_stream,
-            oneshot=oneshot,
+            oneshot=self.oneshot,
             task=message,
             cancellation_token=self._cancelation_token,
         )

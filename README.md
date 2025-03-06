@@ -2,10 +2,18 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Description
-*mchat* is an entirely text-based LLM chat application with support for different LLMs and pre-establshed customizable prompt 'personas' that support mult-shot prompts.  *mchat* uses the excellent [Textual](https://textual.textualize.io) framework for a GUI-like experience complete with mouse support and should run anywhere a decent terminal is available, including over SSH. 
+## Description (OLD)
+*mchat* **was** an entirely text-based LLM chat application with support for different LLMs and pre-establshed customizable prompt 'personas' that support mult-shot prompts.  *mchat* uses the excellent [Textual](https://textual.textualize.io) framework for a GUI-like experience complete with mouse support and should run anywhere a decent terminal is available, including over SSH. 
+
+## Description (NEW)
+NEW: As good as Textual is, I needed to move to a more graphically capable UI
+to be able to support embedded images, LaTeX, and graphing.  To support this
+I have migrated the frontend to [Nicegui](https://nicegui.io)  The Textual code is still present and should continue to work, but I will not likely be 
+maintaining it.  
 
 All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you will need to disable the Dall-E support if you don't also have an OpenAI API key.
+
+## Screenshots (OLD)
 
 ![Screenshot1](screenshot1.png)
 
@@ -29,7 +37,9 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
 
 ## Table of Contents
 - [mchat](#mchat)
-  - [Description](#description)
+  - [Description (OLD)](#description-old)
+  - [Description (NEW)](#description-new)
+  - [Screenshots (OLD)](#screenshots-old)
   - [TODO](#todo)
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
@@ -38,7 +48,7 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
     - [Model Lists](#model-lists)
     - [Model Configuration](#model-configuration)
     - [Default Settings](#default-settings)
-    - [Memory Model Configuration](#memory-model-configuration)
+    - [Memory Model Configuration (NOTE: Currently disabled)](#memory-model-configuration-note-currently-disabled)
     - [Secrets Configuration](#secrets-configuration)
   - [Agents](#agents)
   - [Usage](#usage)
@@ -52,14 +62,10 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
    - Python: https://www.python.org
    - UV: https://github.com/astral-sh/uv
 
-2. Until supported by autogen, mchat depends on a slightly modified version of autogen located below.  Clone or download this version and checkout the *stream_token_0.4* branch
-   - Autogen: https://github.com/jspv/autogen/tree/stream_token_0.4
 
-3. Clone this repository to your local machine or download and extract the source code.  mchat will expect to find autogen located as a peer directory.  E.g. /src/mchat and /src/autogen; autogen should be at ../autogen in relation to mchat.  
+2. Open a terminal or command prompt and navigate to the project directory.
 
-4. Open a terminal or command prompt and navigate to the project directory.
-
-5. Run the following command to install the project dependencies:
+3. Run the following command to install the project dependencies:
 
    ```shell
    uv sync --all-extras
@@ -97,7 +103,7 @@ For each model, you can configure the following properties:
 - default_temperature: Specifies the default temperature for generating text.
 - default_persona: Specifies the default persona for generating text.
   
-### Memory Model Configuration
+### Memory Model Configuration (NOTE: Currently disabled)
 mchat maintains memory of the current chat in order to retain context in long conversations.  When the retained memory exceeds the size the model supports, it will summarize the convseration to reduce size.  Since this can be called often for longer chats, it is recommended to use an inexpensive model.  
 
 You can configure the following properties:

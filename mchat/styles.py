@@ -1,5 +1,3 @@
-from nicegui import ui
-
 """
 $primary   : rgba(15, 23, 42, 0.89);
 $secondary : #26A69A;
