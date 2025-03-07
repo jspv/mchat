@@ -2,6 +2,9 @@ import argparse
 import asyncio
 import json
 import os
+import time
+from datetime import datetime
+from logging import getLogger
 from typing import Literal
 
 import yaml
@@ -14,6 +17,9 @@ from mchat.llm import AutogenManager, ModelManager
 from mchat.statusbar import StatusContainer
 
 from .styles import colors as c
+
+logger = getLogger(__name__)
+logger.setLevel("DEBUG")
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
@@ -38,7 +44,7 @@ class ChatTurn(object):
             if question and role == "user":
                 with ui.row().classes("mt-4 mb-1 justify-end"):
                     ui.label(f"{question}").classes(
-                        f"bg-{c.input_d} p-4 dark rounded-3xl text-body1"
+                        f"bg-{c.input_d} text-white p-4 dark rounded-3xl text-body1"
                     )
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
@@ -244,13 +250,13 @@ class WebChatApp:
                     "bg-accent rounded-3xl p-3 px-4 w-4/5 min-h-20 flex flex-col"
                 ) as card:
                     with ui.column().classes(
-                        f"bg-{c.input_l} dark:bg-{c.input_d} gap-0 w-full"
+                        f"bg-{c.input_d} dark:bg-{c.input_d} gap-0 w-full"
                     ):
                         with (
                             ui.textarea(placeholder="How can I help?")
                             .props(
                                 f"dark autogrow borderless standout='bg-{c.input_d}' "
-                                f"input-class='max-h-40 bg-{c.input_d} text-white' "
+                                f"input-class='max-h-40 bg-{c.input_d} dark:bg-{c.input_d} text-white' "
                                 "dense autofocus"
                             )
                             .classes("w-full self-center text-body1")
@@ -364,12 +370,13 @@ class WebChatApp:
         ui.notify(f"Exception: {e}", type="warning")
 
     def run(self):
-        # callbacks don't propogate excecptions, so this sends them to ui.notify
+        # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
+        logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         ui.run(
             port=8881,
-            title="MChat - Mulit-Model Chat Framework",
-            favicon="🤖",
+            title="MChat - Multi-Model Chat Framework",
+            favicon="static/favicon-32x32.png",
             dark=True,
         )
 
