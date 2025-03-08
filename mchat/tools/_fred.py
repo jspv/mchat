@@ -3,39 +3,45 @@ from typing import Annotated
 from fredapi import Fred
 
 from config import settings
+from mchat.tool_utils import BaseTool
 
 
-def fetch_fred_data(
-    series: Annotated[str, "FRED series ID"],
-    start_date: Annotated[str, "Start date in 'YYYY-MM-DD' format"],
-    end_date: Annotated[str, "End date in 'YYYY-MM-DD' format"],
-) -> dict:
-    """
-    Fetch data from the Federal Reserve Economic Data (FRED) API.
+class FetchFREDDataTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="fetch_fred_data",
+            description="Fetches data from the Federal Reserve Economic Data (FRED) using a series ID and date range.",
+        )
 
-    Args:
-        series (str): FRED series ID.
-        start_date (str): Start date in "YYYY-MM-DD" format.
-        end_date (str): End date in "YYYY-MM-DD" format.
+    def verify_setup(self):
+        api_key = settings.get("fred_api_key", None)
+        if not api_key:
+            raise ValueError("FRED API key not found.")
+        self.fred = Fred(api_key=api_key)
 
-    Returns:
-        dict: FRED data as a JSON-serializable dictionary.
-    """
-    # Fetch FRED API key
-    api_key = settings.get("fred_api_key", None)
+    def run(
+        self,
+        series: Annotated[str, "FRED series ID"],
+        start_date: Annotated[str, "Start date in 'YYYY-MM-DD' format"],
+        end_date: Annotated[str, "End date in 'YYYY-MM-DD' format"],
+    ) -> dict:
+        """
+        Fetch data from the Federal Reserve Economic Data (FRED) API.
 
-    if not api_key:
-        raise ValueError("FRED API key not found")
+        Args:
+            series (str): FRED series ID.
+            start_date (str): Start date in "YYYY-MM-DD" format.
+            end_date (str): End date in "YYYY-MM-DD" format.
 
-    # Initialize the FRED API client
-    fred = Fred(api_key=api_key)
+        Returns:
+            dict: FRED data as a JSON-serializable dictionary.
+        """
+        if not self.is_callable:
+            raise RuntimeError(
+                f"Tool '{self.name}' is not callable due to setup failure: {self.load_error}"
+            )
 
-    # Fetch the FRED series data
-    data = fred.get_series(
-        series, observation_start=start_date, observation_end=end_date
-    )
-
-    # Convert DataFrame to JSON
-    data_json = data.to_json(orient="table")
-
-    return data_json
+        data = self.fred.get_series(
+            series, observation_start=start_date, observation_end=end_date
+        )
+        return data.to_json(orient="table")

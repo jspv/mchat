@@ -1,7 +1,9 @@
 import asyncio
 import copy
 import http.client
+import importlib
 import logging
+import os
 from dataclasses import dataclass, fields
 from functools import reduce
 from typing import (
@@ -49,10 +51,7 @@ from pydantic.networks import HttpUrl
 
 from config import settings
 
-from .tools._fred import fetch_fred_data
-from .tools._generate_image import OpenAIImageAPIWrapper
-from .tools._up_to_date import get_location, today
-from .tools._web_search import google_search
+from .tool_utils import BaseTool
 
 logging.basicConfig(filename="debug.log", filemode="w", level=logging.DEBUG)
 requests_log = logging.getLogger("requests.packages.urllib3")
@@ -458,46 +457,34 @@ class AutogenManager(object):
 
         # Inialize available tools
         self.tools = {}
-        self.tools["google_search"] = FunctionTool(
-            google_search,
-            description=(
-                "Call this to search the Internet for information, "
-                "returns links with a snippet of body content"
-            ),
-        )
-        self.tools["get_location"] = FunctionTool(
-            get_location,
-            description=(
-                "Call this to get the city, country, IP address, postal code, "
-                "timezone, latitude and longitude of the current IP address being used"
-            ),
-        )
-        self.tools["today"] = FunctionTool(
-            today,
-            description=("Call this to get the current date, time, and timezone"),
-        )
-        self.tools["fetch_fred_data"] = FunctionTool(
-            fetch_fred_data,
-            description=(
-                "Call this to get data from the Federal Reserve Economic Data API"
-            ),
-        )
-        # generate_image tool - need to give the API key to the OpenAIImageAPIWrapper
-        if settings.get("openai_api_key"):
-            generate_image_tool = OpenAIImageAPIWrapper(
-                api_key=settings.get("openai_api_key"),
-            )
-            self.tools["generate_image"] = FunctionTool(
-                generate_image_tool.generate_image,
-                description=(
-                    "Generate an image from a prompt, it     will return a url and a "
-                    "revised_prompt if the tool decided to enhance the prompt. Do not "
-                    "alter the url in any way, and provide information back to the user"
-                    " if the prompt was changed"
-                ),
-            )
-        # else:
-        #     self.tools["generate_image"] = None
+        # Get the directory of the current file
+        current_directory = os.path.dirname(os.path.abspath(__file__))
+        tools_directory = os.path.join(current_directory, "tools")
+
+        for filename in os.listdir(tools_directory):
+            if filename.endswith(".py"):
+                file_path = os.path.join(tools_directory, filename)
+                spec = importlib.util.spec_from_file_location(filename[:-3], file_path)
+                module = importlib.util.module_from_spec(spec)
+                try:
+                    spec.loader.exec_module(module)
+
+                    # Assuming all tool classes are derived from BaseTool
+                    for item_name in dir(module):
+                        item = getattr(module, item_name)
+                        if (
+                            isinstance(item, type)
+                            and issubclass(item, BaseTool)
+                            and item is not BaseTool
+                        ):
+                            tool_instance = item()  # Instantiate the tool
+                            self.tools[tool_instance.name] = FunctionTool(
+                                tool_instance.run,
+                                description=tool_instance.description,
+                                name=tool_instance.name,
+                            )
+                except Exception as e:
+                    print(f"Failed to load tool module {filename[:-3]}: {e}")
 
     @property
     def logger(self):
