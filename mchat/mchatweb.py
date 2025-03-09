@@ -1,10 +1,9 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
-import time
 from datetime import datetime
-from logging import getLogger
 from typing import Literal
 
 import yaml
@@ -15,14 +14,47 @@ from config import settings
 from mchat.history import HistoryContainer
 from mchat.llm import AutogenManager, ModelManager
 from mchat.statusbar import StatusContainer
+from mchat.styles import colors as c
 
-from .styles import colors as c
+plogger = logging.getLogger(__name__).parent
+plogger.setLevel("WARNING")
+log_handler = logging.FileHandler("debug.log", mode="a")
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+log_handler.setFormatter(formatter)
+plogger.addHandler(log_handler)
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 logger.setLevel("DEBUG")
+
+
+logging.getLogger("mchat.llm").setLevel("DEBUG")
 
 DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
+
+
+class LogElementHandler(logging.Handler):
+    """A logging handler that emits messages to a log element."""
+
+    LOG_LEVEL_ICONS = {
+        logging.DEBUG: "🐞",
+        logging.INFO: "ℹ️",
+        logging.WARNING: "⚠️",
+        logging.ERROR: "❌",
+        logging.CRITICAL: "🔥",
+    }
+
+    def __init__(self, element: ui.log, level: int = logging.NOTSET) -> None:
+        self.element = element
+        super().__init__(level)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            msg = f"{self.LOG_LEVEL_ICONS.get(record.levelno, '')} {msg}"
+            self.element.push(msg)
+        except Exception:
+            self.handleError(record)
 
 
 class ChatTurn(object):
@@ -83,12 +115,6 @@ class WebChatApp:
         self.current_temperature: float | None = None
         self.current_question: str | None = None
 
-        # current debug log
-        self.debug_log = []
-        self.logger = self.Log(
-            self
-        )  # note: logging will not work until UI is initialized
-
         self.history_container: HistoryContainer | None = None
         self.message_container: ui.element | None = None
         self.status_container: StatusContainer | None = None
@@ -108,14 +134,12 @@ class WebChatApp:
 
         # Get an object to manage the AI models
         self.mm = ModelManager()
-        self.mm.logger = self.logger
 
         # Get an object to manage autogen
         self.ag = AutogenManager(
             message_callback=self.on_llm_new_token,
             agents=self.agents,
         )
-        self.ag.logger = self.logger
         # load the llm models from settings - name: {key: value,...}
 
         self.available_llm_models = self.mm.available_chat_models
@@ -139,15 +163,6 @@ class WebChatApp:
 
         # set the agent and model
         self.default_agent = getattr(settings, "defaults.agent", "default")
-
-        # asyncio.run(
-        #     self.set_agent_and_model(
-        #         agent=self.default_agent,
-        #         model=self._current_llm_model,
-        #         temperature=self.llm_temperature,
-        #         model_context=None,
-        #     )
-        # )
 
         # Define the main UI layout
         @ui.page("/")
@@ -240,7 +255,14 @@ class WebChatApp:
                 # .style("background-color: #ebf1fa")
             ):
                 ui.label("DEBUG")
-                self._debug_container = ui.scroll_area().classes("h-full p-4")
+                # self._debug_container = ui.scroll_area().classes("h-full p-4")
+                self.log = ui.log().classes("w-full whitespace-pre-wrap h-full")
+                handler = LogElementHandler(self.log)
+                logging.getLogger(__name__).parent.addHandler(handler)
+                ui.context.client.on_disconnect(
+                    lambda: logging.getLogger(__name__).parent.removeHandler(handler)
+                )
+                logger.info("Initialized UI Logging")
 
             # Footer and Input Area
             with ui.footer().classes(
@@ -325,10 +347,9 @@ class WebChatApp:
 
                         # focus the input when anywhere on the card is clicked
                         card.on("click", lambda: input_area.run_method("focus"))
-            self.logger.rebuild()
 
-        self.logger("Starting MChat")
-        self.logger.debug("Debug logging enabled")
+        logger.info("Starting MChat")
+        logger.debug("Debug logging enabled")
 
     @property
     def current_agent(self):
@@ -336,7 +357,7 @@ class WebChatApp:
 
     @current_agent.setter
     def current_agent(self, agent: str):
-        self.logger(f"setting agent to {agent}")
+        logger.info(f"setting agent to {agent}")
         asyncio.create_task(self.set_agent_and_model(agent=agent))
 
     @property
@@ -361,24 +382,19 @@ class WebChatApp:
             raise ValueError(
                 f"model '{model}' not compatible with agent '{self.agent}'"
             )
-        self.logger(f"setting model to {model}")
+        logger.info(f"setting model to {model}")
         asyncio.create_task(self.set_agent_and_model(model=model))
 
     def handle_exception(self, e: Exception) -> None:
         """callbacks don't propogate excecptions, so this sends them to ui.notify"""
-        self.logger(f"Exception: {e}")
+        logger.warning(f"Exception: {e}")
         ui.notify(f"Exception: {e}", type="warning")
 
-    def run(self):
+    def run(self, **kwargs):
         # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
         logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        ui.run(
-            port=8881,
-            title="MChat - Multi-Model Chat Framework",
-            favicon="static/favicon-32x32.png",
-            dark=True,
-        )
+        ui.run(**kwargs)
 
     async def on_llm_new_token(self, token: str, **kwargs):
         """Callback for new tokens from the autogen manager"""
@@ -398,7 +414,7 @@ class WebChatApp:
 
     def set_agent(self, agent: str):
         """Callback to set the agent"""
-        self.logger(f"Setting agent to {agent}")
+        logger.info(f"Setting agent to {agent}")
         asyncio.create_task(self.set_agent_and_model(agent=agent))
 
     def parse_args_and_initialize(self):
@@ -627,7 +643,7 @@ class WebChatApp:
             # check to see if the name is an llm or image model
             if model in self.available_llm_models:
                 self._current_llm_model = model
-                self.logger.debug(f"switching to llm model {model}")
+                logger.debug(f"switching to llm model {model}")
                 try:
                     await self.set_agent_and_model(model=model)
                 except ValueError as e:
@@ -648,7 +664,7 @@ class WebChatApp:
                 return
             elif model in self.available_image_models:
                 self.image_model_name = model
-                self.logger(f"switching to image model {model}")
+                logger.debug(f"switching to image model {model}")
                 self._reinitialize_image_model()
                 await self.add_to_chat_message(
                     role="assistant",
@@ -728,7 +744,7 @@ class WebChatApp:
         try:
             await self.ag.ask(question)
         except Exception as e:
-            self.logger.debug(f"Error running autogen: {e}")
+            logger.critical(f"Error running autogen: {e}")
             await self.add_to_chat_message(
                 role="assistant",
                 message=f"Error running autogen: {e}",
@@ -810,14 +826,14 @@ class WebChatApp:
         """Stop the running agent"""
         ui.notify("Will stop the agent on next turn", type="warning")
         self.ag.terminate()
-        self.logger.debug("Agent stopped via End button")
+        logger.debug("Agent stopped via End button")
         await self.end_chat_turn(role="assistant")
 
     async def esc_button_pressed(self):
         """Hard-terminate the running agent"""
         ui.notify("Terminating the agent", type="negative")
         self.ag.cancel()
-        self.logger.debug("Agent terminated via ESC button")
+        logger.debug("Agent terminated via ESC button")
         # cleanup
         if self._spinner.is_deleted is False:
             self._spinner.delete()
@@ -864,14 +880,18 @@ class WebChatApp:
                 agent=agent, model_id=model, temperature=temperature
             )
         except Exception as e:
-            self.logger(f"Error setting agent and model: {e}")
+            logger.critical(f"Error setting agent and model: {e}")
             ui.notify(f"Error setting agent and model: {e}", type="warning")
             return
 
         self._current_agent = agent
         # _current_compatible_models is updated in the setter
         self.current_compatible_models = compatible_models
-        self._current_llm_model = model
+        if model != self.ag.model:
+            logging.error(
+                f"Setting model to {model} failed, model currently {self.ag.model}"
+            )
+        self._current_llm_model = self.ag.model
         self.llm_temperature = temperature
 
         # update the memory with the model context
@@ -880,60 +900,15 @@ class WebChatApp:
 
         self.current_question = ""
 
-        self.logger(f"Agent set to {agent}")
-        self.logger(f"Model set to {self.ag.model}")
-
-        # debug_pane = self.query_one(DebugPane)
-        # # debug_pane.update_status()
-        # # debug_pane.update_entry(
-        # #     "summary_buffer",
-        # #     lambda: self.memory.moving_summary_buffer,
-        # # )
-
-        # await debug_pane.update_status()
-
-    class Log:
-        info_classes = ""
-        debug_classes = f"bg-{c.warning}"
-
-        def __init__(self, app):
-            self.app = app
-            self.debug = self.Debug(self)
-
-        def __call__(self, message):
-            # This is called when the instance itself is called like a function
-            self.app.debug_log.append({"type": "INFO", "message": message})
-            if hasattr(self.app, "_debug_container"):
-                with self.app._debug_container:
-                    ui.label(message).classes(self.info_classes)
-                self.app._debug_container.scroll_to(percent=100)
-
-        def rebuild(self):
-            """rebuld the log entries"""
-            if hasattr(self.app, "_debug_container"):
-                with self.app._debug_container:
-                    for entry in self.app.debug_log:
-                        if entry["type"] == "INFO":
-                            ui.label(entry["message"]).classes(self.info_classes)
-                        elif entry["type"] == "DEBUG":
-                            ui.label(entry["message"]).classes(self.debug_classes)
-                self.app._debug_container.scroll_to(percent=100)
-
-        class Debug:
-            def __init__(self, outer):
-                self.app = outer.app
-                self.debug_classes = outer.debug_classes
-                self.info_classes = outer.info_classes
-
-            def __call__(self, message):
-                # This is called when the instance itself is called like a function
-                self.app.debug_log.append({"type": "DEBUG", "message": message})
-                if hasattr(self.app, "_debug_container"):
-                    with self.app._debug_container:
-                        ui.label(f"DEBUG: {message}").classes(self.debug_classes)
-                    self.app._debug_container.scroll_to(percent=100)
+        logger.info(f"Agent set to {agent}")
+        logger.info(f"Model set to {self.ag.model}")
 
 
-if __name__ in {"__main__", "__mp_main__"}:
-    mchat_app = WebChatApp()
-    mchat_app.run()
+# if __name__ in {"__main__", "__mp_main__"}:
+#     mchat_app = WebChatApp()
+#     mchat_app.run(
+#         port=8881,
+#         title="MChat - Multi-Model Chat Framework",
+#         favicon="static/favicon-32x32.png",
+#         dark=True,
+#     )

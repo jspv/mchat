@@ -1,4 +1,8 @@
+import logging
+
 from nicegui import ui
+
+logger = logging.getLogger(__name__)
 
 
 class StatusContainer:
@@ -21,7 +25,7 @@ class StatusContainer:
                 .bind_value(self.app.ag, "stream_tokens")
                 .bind_enabled_from(self.app, "ui_is_busy", backward=lambda x: not x)
             )
-            self.app.logger.debug(f"streaming: {self.app.ag.stream_tokens}")
+            logger.debug(f"streaming: {self.app.ag.stream_tokens}")
             self.text = ui.label("Model:").classes("text-[#121212] dark:text-[#ffffff]")
             self.models()
 

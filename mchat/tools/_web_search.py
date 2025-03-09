@@ -12,11 +12,8 @@ from mchat.tool_utils import BaseTool
 
 
 class GoogleSearchTool(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="google_search",
-            description="Performs a Google Custom Search and fetches enriched results.",
-        )
+    name = "google_search"
+    description = "Performs a Google Custom Search and fetches enriched results."
 
     def verify_setup(self):
         self.api_key = settings.get("google_api_key", None)

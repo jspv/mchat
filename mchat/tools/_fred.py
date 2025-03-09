@@ -7,11 +7,12 @@ from mchat.tool_utils import BaseTool
 
 
 class FetchFREDDataTool(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="fetch_fred_data",
-            description="Fetches data from the Federal Reserve Economic Data (FRED) using a series ID and date range.",
-        )
+    name = "fetch_fred_data"
+    description = (
+        "Fetches data from the Federal Reserve Economic Data (FRED) "
+        "using a series ID and date range. FRED has a lot of data "
+        "available, search for a series ID at https://fred.stlouisfed.org/"
+    )
 
     def verify_setup(self):
         api_key = settings.get("fred_api_key", None)
@@ -38,7 +39,8 @@ class FetchFREDDataTool(BaseTool):
         """
         if not self.is_callable:
             raise RuntimeError(
-                f"Tool '{self.name}' is not callable due to setup failure: {self.load_error}"
+                f"Tool '{self.name}' is not callable due to setup failure: "
+                f"{self.load_error}"
             )
 
         data = self.fred.get_series(

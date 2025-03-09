@@ -8,16 +8,13 @@ from mchat.tool_utils import BaseTool
 
 
 class OpenAIImageTool(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="generate_image",
-            description=(
-                "Generates an image using OpenAI's DALL-E API. it will return "
-                "a url and a revised_prompt if the tool decided to enhance the "
-                "prompt. Do not alter the url in any way, and provide information "
-                "back to the user if the prompt was changed"
-            ),
-        )
+    name = "generate_image"
+    description = (
+        "Generates an image using OpenAI's DALL-E API. it will return "
+        "a url and a revised_prompt if the tool decided to enhance the "
+        "prompt. Do not alter the url in any way, and provide information "
+        "back to the user if the prompt was changed"
+    )
 
     def verify_setup(self):
         api_key = settings.get("openai_api_key", None)
@@ -54,7 +51,8 @@ class OpenAIImageTool(BaseTool):
         """
         if not self.is_callable:
             raise RuntimeError(
-                f"Tool '{self.name}' is not callable due to setup failure: {self.load_error}"
+                f"Tool '{self.name}' is not callable due to setup failure: "
+                f"{self.load_error}"
             )
 
         image_data = self.wrapper.generate_image(

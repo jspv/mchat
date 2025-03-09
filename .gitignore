@@ -170,3 +170,6 @@ db.*
 
 # Ignore dynaconf secret files
 .secrets.*
+
+.nicegui
+uv.lock

@@ -8,11 +8,8 @@ from mchat.tool_utils import BaseTool
 
 
 class Today(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="today",
-            description="Get the current date and time in the local timezone.",
-        )
+    name = "today"
+    description = "Get the current date and time in the local timezone."
 
     def run(self) -> Annotated[str, "Current date and time in local timezone"]:
         """
@@ -26,11 +23,8 @@ class Today(BaseTool):
 
 
 class Location(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="get_location",
-            description="Get IP-based geolocation data.",
-        )
+    name = "get_location"
+    description = "Get IP-based geolocation data."
 
     def run(self) -> Annotated[Dict[str, Any], "IP-based geolocation data"]:
         """

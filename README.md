@@ -13,14 +13,14 @@ maintaining it.
 
 All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you will need to disable the Dall-E support if you don't also have an OpenAI API key.
 
-## Screenshots (OLD)
+## Screenshots (OLD - TUI)
 
-![Screenshot1](screenshot1.png)
+![Screenshot1](mchat/tui/screenshot1.png)
 
 *New* - Dall-E support added using the `dall-e` keyword, and an 'image composer' persona to help create prompts.
 
 
-![Screenshot2](screenshot2.png)
+![Screenshot2](mchat/tui/screenshot2.png)
 
 ## TODO
 - [x] Copy text to past buffer when clicking on the response
@@ -39,7 +39,7 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
 - [mchat](#mchat)
   - [Description (OLD)](#description-old)
   - [Description (NEW)](#description-new)
-  - [Screenshots (OLD)](#screenshots-old)
+  - [Screenshots (OLD - TUI)](#screenshots-old---tui)
   - [TODO](#todo)
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
@@ -146,6 +146,10 @@ mchat comes with a default persona and two example agents *linux computer* and *
 
    ```shell
    poe mchat
+   ```
+   or
+   ```shell
+   python -m mchat.main
    ```
 
 ## Contributing

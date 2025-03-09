@@ -1,7 +1,8 @@
 class BaseTool:
-    def __init__(self, name, description):
-        self.name = name
-        self.description = description
+    name = "Base Tool"
+    description = "Description of the base tool"
+
+    def __init__(self):
         self.load_error = None
         self.is_callable = True
         try:

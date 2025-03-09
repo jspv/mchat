@@ -35,8 +35,7 @@ dev = ["poethepoet>=0.31.1", "ruff>=0.8.4", "textual-dev>=1.7.0"]
 [tool.uv.sources]
 
 [tool.poe.tasks]
-mchat = "python -m mchat.mchat"
-devmchat = "textual run --dev mchat.mchat"
+mchat = "python -m mchat.main"
 
 # Same as Black.
 [tool.ruff]

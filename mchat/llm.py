@@ -53,11 +53,13 @@ from config import settings
 
 from .tool_utils import BaseTool
 
-logging.basicConfig(filename="debug.log", filemode="w", level=logging.DEBUG)
 requests_log = logging.getLogger("requests.packages.urllib3")
-requests_log.setLevel(logging.DEBUG)
+# requests_log.setLevel(logging.DEBUG)
+requests_log.setLevel(logging.WARNING)
 requests_log.propagate = True
-http.client.HTTPConnection.debuglevel = 1
+# http.client.HTTPConnection.debuglevel = 1
+
+logger = logging.getLogger(__name__)
 
 intent_prompt = (
     "A human is having a conversation with an AI, you are watching that conversation"
@@ -68,7 +70,6 @@ intent_prompt = (
     " 'ask', 3) if the human is continuing an existing conversation, reply with the"
     " word 'continue' 4) if the human is responding to a question that the AI asked,"
     " reply with the word 'reply', 5) if the human is trying to open or loading a file,"
-    " reply with the word 'open', 6) if the human is trying to start a new session,"
     " reply with the word 'new', 7) if the human is trying to end the conversation,"
     " reply with the word 'end'.  The previous conversation follows: {conversation}\n"
     " The new message to the AI is: {input}"
@@ -199,11 +200,10 @@ class ModelConfigEmbeddingAzure(ModelConfig):
 
 
 class ModelManager:
-    def __init__(self, logger: Callable | None = None):
+    def __init__(self):
         # Load all the models from the settings
         self.model_configs = settings["models"].to_dict()
         self.config: Dict[str, ModelConfig] = {}
-        self._logger_callback = logger
 
         # The constructors for the various model types
         model_types = {
@@ -237,22 +237,6 @@ class ModelManager:
             settings.defaults.memory_model_temperature
         )
         self.default_memory_model_max_tokens = settings.defaults.memory_model_max_tokens
-
-    @property
-    def logger(self):
-        """Returns the current logger"""
-        return self._logger_callback
-
-    @logger.setter
-    def logger(self, logger: Callable):
-        """Set the logger"""
-        self._logger_callback = logger
-
-    # if a logger has been provided
-    def log(self, message: str):
-        """Log a message if a logger has been provided"""
-        if self._logger_callback:
-            self._logger_callback(message)
 
     @property
     def available_image_models(self) -> list:
@@ -440,14 +424,12 @@ class AutogenManager(object):
         message_callback: Callable | None = None,
         agents: dict | None = None,
         stream_tokens: bool = True,
-        logger: Callable | None = None,
     ):
         self.mm = ModelManager()
         self._message_callback = message_callback  # send messages back to the UI
         self._agents = agents if agents is not None else {}
         self._stream_tokens = stream_tokens  # streaming currently enabled or not
         self._streaming_preference = stream_tokens  # remember the last setting
-        self._logger_callback = logger
 
         # model being used by the agent, will be set when a new conversation is started
         self._model_id = None
@@ -478,29 +460,19 @@ class AutogenManager(object):
                             and item is not BaseTool
                         ):
                             tool_instance = item()  # Instantiate the tool
-                            self.tools[tool_instance.name] = FunctionTool(
-                                tool_instance.run,
-                                description=tool_instance.description,
-                                name=tool_instance.name,
-                            )
+                            if tool_instance.is_callable:
+                                self.tools[tool_instance.name] = FunctionTool(
+                                    tool_instance.run,
+                                    description=tool_instance.description,
+                                    name=tool_instance.name,
+                                )
+                            else:
+                                logger.error(
+                                    f"Tool {tool_instance.name} not loaded due to "
+                                    f"setup failure: {tool_instance.load_error}"
+                                )
                 except Exception as e:
                     print(f"Failed to load tool module {filename[:-3]}: {e}")
-
-    @property
-    def logger(self):
-        """Returns the current logger"""
-        return self._logger_callback
-
-    @logger.setter
-    def logger(self, logger: Callable):
-        """Set the logger"""
-        self._logger_callback = logger
-
-    # if a logger has been provided
-    def log(self, message: str):
-        """Log a message if a logger has been provided"""
-        if self._logger_callback:
-            self._logger_callback(message)
 
     def new_agent(
         self, agent_name, model_name, prompt, tools: list | None = None
@@ -546,7 +518,7 @@ class AutogenManager(object):
 
         # If currently disabled by logic, don't allow it to be enabled
         if self._stream_tokens is None:
-            self.log(
+            logger.info(
                 f"token streaming disabled, setting stream_tokens to {value} ignored"
             )
             return
@@ -565,21 +537,9 @@ class AutogenManager(object):
         if hasattr(self, "agent"):
             # HACK TODO - this needs to becone a public toggle
             self.agent._model_client_stream = value
-            self.log(f"token streaming for {self.agent.name} set to {value}")
+            logger.info(f"token streaming for {self.agent.name} set to {value}")
         else:
             raise ValueError("stream_tokens can only be set if there is an agent")
-
-        # # if there is an agent, set token callback in the agent if the value is True
-        # if hasattr(self, "agent"):
-        #     if value:
-        #         callback = partial(self._message_callback, agent=self.agent.name)
-        #         self.agent._token_callback = callback
-        #         self.log(f"token streaming for {self.agent.name} enabled")
-        #     else:
-        #         self.agent._token_callback = None
-        #         self.log(f"token streaming for {self.agent.name} disabled")
-        # else:
-        #     self.log(f"token streaming for {self._model_id} set to disabled")
 
     @property
     def model(self) -> str:
@@ -656,7 +616,7 @@ class AutogenManager(object):
 
             # currently not streaming tokens for team agents
             self._stream_tokens = None
-            self.log("token streaming for team-based agents currently disabled")
+            logger.info("token streaming for team-based agents currently disabled")
 
         else:
             # Solo Agent
@@ -691,7 +651,9 @@ class AutogenManager(object):
                         name=agent,
                     )
                     # not streaming builtin autogen agents right now
-                    self.log(f"token streaming agent:{agent} disabled or not supported")
+                    logger.info(
+                        f"token streaming agent:{agent} disabled or not supported"
+                    )
                     self._stream_tokens = None
 
                 else:
@@ -729,7 +691,7 @@ class AutogenManager(object):
             if not self.mm.get_streaming_support(model_id):
                 self._stream_tokens = None
                 self._set_agent_streaming()
-                self.log(f"token streaming for model {model_id} not supported")
+                logger.info(f"token streaming for model {model_id} not supported")
             else:
                 self._stream_tokens = self._streaming_preference
                 self._set_agent_streaming()
@@ -786,14 +748,8 @@ class AutogenManager(object):
                         MultimodalWebSurfer(
                             model_client=model_client,
                             name=agent,
-                            # token_callback=callback,
                         )
                     )
-                    # self.log(
-                    #     f"token streaming agent:{agent} disabled or not supported"
-                    # )
-                    # self._currently_streaming = False
-
                 else:
                     raise ValueError(f"Unknown autogen agent type for agent:{agent}")
             else:
@@ -894,7 +850,9 @@ class AutogenManager(object):
                 # Ingore the autogen tool call summary messages that follow a
                 # tool call
                 if isinstance(response, ToolCallSummaryMessage):
-                    self.log(f"ignoring tool call summary message: {response.content}")
+                    logger.debug(
+                        f"ignoring tool call summary message: {response.content}"
+                    )
                     continue
 
                 if isinstance(response, ModelClientStreamingChunkEvent):
@@ -909,7 +867,7 @@ class AutogenManager(object):
                         continue
                     # if we're streaming no need to show TextMessage, we got the
                     # tokens already
-                    self.log(f"TextMessage: {response.content}")
+                    logger.info(f"TextMessage: {response.content}")
                     if not self._stream_tokens:
                         await self._message_callback(
                             response.content, agent=response.source, complete=True
@@ -940,7 +898,7 @@ class AutogenManager(object):
                     await self._message_callback(tool_message, agent=response.source)
                     continue
                 if isinstance(response, ToolCallExecutionEvent):
-                    self.log(f"tool call result: {response.content}")
+                    logger.info(f"tool call result: {response.content}")
                     await self._message_callback(
                         "done", agent=response.source, complete=True
                     )
@@ -962,7 +920,7 @@ class AutogenManager(object):
             cancellation_token=self._cancelation_token,
         )
         self._cancelation_token = None
-        self.log(f"result: {result.stop_reason}")
+        logger.info(f"result: {result.stop_reason}")
 
 
 class LLMTools:

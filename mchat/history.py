@@ -1,13 +1,16 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Callable, TypeAlias
 
 import apsw.bestpractice
 from nicegui import ui
 
-from mchat.Conversation import ConversationRecord
+from mchat.conversation import ConversationRecord
 from mchat.llm import LLMTools
+from mchat.styles import colors as c
 
-from .styles import colors as c
+logger = logging.getLogger(__name__)
+
 
 # Define type alias for Callbacks
 CallbackType: TypeAlias = Callable[..., None] | None
