@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Literal
 
@@ -23,13 +24,15 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 log_handler.setFormatter(formatter)
 plogger.addHandler(log_handler)
 
+# Add a console logger until the UI is running
+console_log_handler = logging.StreamHandler()
+console_log_handler.setFormatter(formatter)
+plogger.addHandler(console_log_handler)
+
 logger = logging.getLogger(__name__)
-logger.setLevel("DEBUG")
+logger.setLevel("WARNING")
 
-
-logging.getLogger("mchat.llm").setLevel("DEBUG")
-
-DEFAULT_AGENT_FILE = "mchat/default_agents.yaml"
+DEFAULT_AGENT_FILE = os.path.join("mchat", "default_agents.yaml")
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
 
 
@@ -57,7 +60,7 @@ class LogElementHandler(logging.Handler):
             self.handleError(record)
 
 
-class ChatTurn(object):
+class ChatTurn:
     """A single turn in a chat conversation, UI and logic"""
 
     def __init__(
@@ -89,7 +92,8 @@ class ChatTurn(object):
         # force scroll to the bottom
         ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
 
-    async def append_chunk(self, chunk: str):
+    async def append_chunk(self, chunk: str) -> None:
+        """Append a chunk of text to the response"""
         self.response += chunk
         self.chat_response_content.clear()
         if self.chat_response.visible is False:
@@ -102,6 +106,7 @@ class ChatTurn(object):
             )
 
         # force scroll to the bottom
+        # TODO: implement a debounce to not call this every chunk
         ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
 
 
@@ -122,49 +127,11 @@ class WebChatApp:
 
         self.ui_is_busy = False
 
-        # parse arguments
-        self.parse_args_and_initialize()
-        # load agents
-        self.agents = self.load_agents()
-        self.chooseable_agents = [
-            agent_name
-            for agent_name, val in self.agents.items()
-            if val.get("choosable", True)
-        ]
+        # used to lock the task when changing agents or models to prevent
+        self._task_lock = asyncio.Lock()
 
-        # Get an object to manage the AI models
-        self.mm = ModelManager()
+        # Initialziation of models and agents is done in .run()
 
-        # Get an object to manage autogen
-        self.ag = AutogenManager(
-            message_callback=self.on_llm_new_token,
-            agents=self.agents,
-        )
-        # load the llm models from settings - name: {key: value,...}
-
-        self.available_llm_models = self.mm.available_chat_models
-        self.available_image_models = self.mm.available_image_models
-
-        self._current_llm_model = self.mm.default_chat_model
-        self.llm_temperature = self.mm.default_chat_temperature
-
-        # Initialize the image model
-        self.default_image_model = settings.get("defaults.image_model", None)
-        if self.mm.default_image_model is not None:
-            self.image_model_name = self.mm.default_image_model
-            self.image_model = self.mm.open_model(
-                self.image_model_name, model_type="image"
-            )
-        else:
-            self.image_model_name = None
-            self.image_model = None
-
-        # Initialze the agent, model and active conversation record
-
-        # set the agent and model
-        self.default_agent = getattr(settings, "defaults.agent", "default")
-
-        # Define the main UI layout
         @ui.page("/")
         async def main_ui():
             await self.set_agent_and_model(
@@ -196,7 +163,7 @@ class WebChatApp:
 
             # Below allows code blocks in markdown to look nice
             ui.add_head_html(
-                f'<style>{HtmlFormatter(nobackground=False, style="solarized-dark").get_style_defs(".codehilite")}</style>'  # noqa: E501
+                f"<style>{HtmlFormatter(nobackground=False, style='solarized-dark').get_style_defs('.codehilite')}</style>"  # noqa: E501
             )
 
             ui.add_head_html("""
@@ -259,6 +226,7 @@ class WebChatApp:
                 self.log = ui.log().classes("w-full whitespace-pre-wrap h-full")
                 handler = LogElementHandler(self.log)
                 logging.getLogger(__name__).parent.addHandler(handler)
+                logging.getLogger(__name__).parent.removeHandler(console_log_handler)
                 ui.context.client.on_disconnect(
                     lambda: logging.getLogger(__name__).parent.removeHandler(handler)
                 )
@@ -278,8 +246,8 @@ class WebChatApp:
                             ui.textarea(placeholder="How can I help?")
                             .props(
                                 f"dark autogrow borderless standout='bg-{c.input_d}' "
-                                f"input-class='max-h-40 bg-{c.input_d} dark:bg-{c.input_d} text-white' "
-                                "dense autofocus"
+                                f"input-class='max-h-40 bg-{c.input_d} "
+                                f"dark:bg-{c.input_d} text-white' dense autofocus"
                             )
                             .classes("w-full self-center text-body1")
                             .bind_enabled_from(
@@ -356,9 +324,16 @@ class WebChatApp:
         return self._current_agent
 
     @current_agent.setter
-    def current_agent(self, agent: str):
-        logger.info(f"setting agent to {agent}")
-        asyncio.create_task(self.set_agent_and_model(agent=agent))
+    def current_agent(self, agent: str) -> None:
+        async def inner_task():
+            async with self._task_lock:
+                try:
+                    logger.info(f"Setting agent to {agent}")
+                    await self.set_agent_and_model(agent)
+                except Exception as e:
+                    logger.error(f"Error setting agent: {e}")
+
+        asyncio.create_task(inner_task())
 
     @property
     def current_compatible_models(self):
@@ -375,23 +350,35 @@ class WebChatApp:
         return self._current_llm_model
 
     @current_llm_model.setter
-    def current_llm_model(self, model: str):
-        if model is None:  # this can happen when the UI is refreshing
-            return
-        if model not in self.current_compatible_models:
-            raise ValueError(
-                f"model '{model}' not compatible with agent '{self.agent}'"
-            )
-        logger.info(f"setting model to {model}")
-        asyncio.create_task(self.set_agent_and_model(model=model))
+    def current_llm_model(self, model: str) -> None:
+        async def inner_task():
+            async with self._task_lock:
+                if model is None:
+                    logger.info("Model is None, returning from setter")
+                    return
+                if model not in self.current_compatible_models:
+                    logger.error(
+                        f"Model '{model}' not compatible with agent '{self.agent}'"
+                    )
+                    raise ValueError(
+                        f"Model '{model}' not compatible with agent '{self.agent}'"
+                    )
+                try:
+                    logger.info(f"Setting model to {model}")
+                    await self.set_agent_and_model(model=model)
+                except Exception as e:
+                    logger.error(f"Error setting LLM model: {e}")
+
+        asyncio.create_task(inner_task())
 
     def handle_exception(self, e: Exception) -> None:
         """callbacks don't propogate excecptions, so this sends them to ui.notify"""
-        logger.warning(f"Exception: {e}")
+        logger.exception("Unhandled Exception", exc_info=e)
         ui.notify(f"Exception: {e}", type="warning")
 
     def run(self, **kwargs):
         # callbacks don't propagate exceptions, so this sends them to ui.notify
+        self.parse_args_and_initialize()
         app.on_exception(self.handle_exception)
         logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         ui.run(**kwargs)
@@ -412,17 +399,56 @@ class WebChatApp:
         if "complete" in kwargs and kwargs["complete"]:
             await self.end_chat_turn(role="assistant", agent_name=agent_name)
 
-    def set_agent(self, agent: str):
-        """Callback to set the agent"""
-        logger.info(f"Setting agent to {agent}")
-        asyncio.create_task(self.set_agent_and_model(agent=agent))
-
     def parse_args_and_initialize(self):
         parser = argparse.ArgumentParser()
         parser.add_argument(
             "-v", "--verbose", help="Increase verbosity", action="store_true"
         )
         args, unknown = parser.parse_known_args()
+        if args.verbose:
+            logger.setLevel("DEBUG")
+            logging.getLogger("mchat.llm").setLevel("DEBUG")
+            logger.debug("Verbose logging enabled")
+
+        # Initialize agents and models
+        # load agents
+        self.agents = self.load_agents()
+        self.chooseable_agents = [
+            agent_name
+            for agent_name, val in self.agents.items()
+            if val.get("choosable", True)
+        ]
+        # Get an object to manage the AI models
+
+        try:
+            self.mm = ModelManager()
+        except RuntimeError as e:
+            exit(f"Error initializing: {e}")
+
+        # Get an object to manage autogen
+        self.ag = AutogenManager(
+            message_callback=self.on_llm_new_token,
+            agents=self.agents,
+        )
+        self.available_llm_models = self.mm.available_chat_models
+        self.available_image_models = self.mm.available_image_models
+
+        self._current_llm_model = self.mm.default_chat_model
+        self.llm_temperature = self.mm.default_chat_temperature
+
+        # Initialize the image model
+        self.default_image_model = settings.get("defaults.image_model", None)
+        if self.mm.default_image_model is not None:
+            self.image_model_name = self.mm.default_image_model
+            self.image_model = self.mm.open_model(
+                self.image_model_name, model_type="image"
+            )
+        else:
+            self.image_model_name = None
+            self.image_model = None
+
+        # set the agent and model
+        self.default_agent = getattr(settings, "defaults.agent", "default")
 
     async def add_to_chat_message(
         self, message: str, role: str | None = None, agent_name: str = None
@@ -513,246 +539,240 @@ class WebChatApp:
         self.chatbox = None
 
     async def ask_question(self, question: str):
-        """Read the user's question and take action"""
-        if question.lower() == "help":
-            # await self.end_chat_turn(role="meta")
-            await self.add_to_chat_message(
-                role="assistant",
-                message=(
-                    "Available Commands:\n\n"
-                    " - new: start a new session\n"
-                    " - agents: show available agents\n"
-                    " - agent <agent>: set the agent\n"
-                    " - models: show available models\n"
-                    " - model <model>: set the model\n"
-                    " - temperature <temperature>: set the temperature\n"
-                    " - summary: summarize the conversation\n"
-                    " - stream [on|off]: turn stream tokens on or off\n"
-                    " - dall-e <prompt>: generate an image from the prompt\n"
-                ),
-                agent_name="meta",
-            )
-            await self.end_chat_turn(role="meta")
-            return
-
-        # new
-        if question.lower() == "new" or question == "new session":
-            await self.end_chat_turn(role="meta")
-            # if the session we're in is empty, don't start a new session
-            if len(self.record.turns) == 0:
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message="You're already in a new session",
-                    agent_name="meta",
-                )
-                await self.end_chat_turn(role="meta")
-                return
-            # Start a new session
-            self.message_container.clear()
-            self.record = await self.history_container.new_session()
-            self._current_llm_model = self.mm.default_chat_model
-            self.llm_temperature = self.mm.default_chat_temperature
-            await self.set_agent_and_model(
-                agent=self.default_agent,
-                model=self.mm.default_chat_model,
-                model_context=None,
-            )
-            return
-
-        # agent
-        if question.lower() == "agents" or question.lower() == "agent":
-            await self.end_chat_turn(role="meta")
-            await self.add_to_chat_message(
-                role="assistant", message="Available agents\n\n", agent_name="meta"
-            )
-
-            for agent in self.chooseable_agents:
-                if agent == self._current_agent:
-                    await self.add_to_chat_message(
-                        role="assistant",
-                        message=f" - *{agent}* (current)\n",
-                        agent_name="meta",
-                    )
-                else:
-                    await self.add_to_chat_message(
-                        role="assistant", message=f" - {agent}\n", agent_name="meta"
-                    )
-            await self.end_chat_turn(role="meta")
-            return
-
-        # set agent
-        if question.startswith("agent"):
-            await self.end_chat_turn(role="meta")
-            # load the new agent
-            agent = question.split(maxsplit=1)[1].strip()
-            if agent not in self.agents:
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message=f"agent '{agent}' not found",
-                    agent_name="meta",
-                )
-                await self.end_chat_turn(role="meta")
-                return
-            await self.set_agent_and_model(agent=agent)
-            await self.add_to_chat_message(
-                role="assistant",
-                message=f"Agent set to {agent}\n\nModel set to {self.ag.model}",
-                agent_name="meta",
-            )
-            await self.end_chat_turn(role="meta")
-            return
-
-        # available models
-        if question == "models" or question == "model":
-            await self.end_chat_turn(role="meta")
-            await self.add_to_chat_message(
-                role="assistant", message="Available Models:\n\n", agent_name="meta"
-            )
-
-            await self.add_to_chat_message(
-                role="assistant", message="- LLM Models:\n", agent_name="meta"
-            )
-            for model in self.available_llm_models:
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message=f"   - {model}\n",
-                    agent_name="meta",
-                )
-            await self.add_to_chat_message(
-                role="assistant",
-                message="- Image Models:\n",
-                agent_name="meta",
-            )
-            for model in self.available_image_models:
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message=f"   - {model}\n",
-                    agent_name="meta",
-                )
-
-            self.current_question = ""
-            await self.end_chat_turn(role="meta")
-            return
-
-        # set model
-        if question.startswith("model"):
-            await self.end_chat_turn(role="meta")
-            # get the model
-            model = question.split(maxsplit=1)[1].strip()
-
-            # check to see if the name is an llm or image model
-            if model in self.available_llm_models:
-                self._current_llm_model = model
-                logger.debug(f"switching to llm model {model}")
+        """Processes the user's question and dispatches commands."""
+        command = question.strip()
+        # Define the command handlers as a list of tuples (pattern, handler)
+        handlers = [
+            (r"^help$", self.handle_help),
+            (r"^new(?: session)?$", self.handle_new_session),
+            (r"^agents?$", self.handle_list_agents),
+            (r"^agent\s+(.+)$", self.handle_set_agent),
+            (r"^models?$", self.handle_list_models),
+            (r"^model\s+(.+)$", self.handle_set_model),
+            (r"^stream\s+(on|off)$", self.handle_stream_toggle),
+            (r"^stream$", self.handle_stream_status),
+            # Add other command patterns and handlers here
+        ]
+        # Try to match the user's input to a command
+        for pattern, handler in handlers:
+            match = re.match(pattern, command, re.IGNORECASE)
+            if match:
+                await self.end_chat_turn(role="meta")  # End previous turn if necessary
                 try:
-                    await self.set_agent_and_model(model=model)
-                except ValueError as e:
+                    # Call the handler with any captured groups from the regex
+                    await handler(*match.groups())
+                except Exception as e:
+                    logger.exception(f"Error handling command '{command}'", exc_info=e)
                     await self.add_to_chat_message(
                         role="assistant",
-                        message=f"Error setting model: {e}",
+                        message=f"Error: {str(e)}",
                         agent_name="meta",
                     )
+                    await self.end_chat_turn(role="meta")
+                return  # Command has been handled
 
-                else:
-                    await self.add_to_chat_message(
-                        role="assistant",
-                        message=f"Model set to {self._current_llm_model}",
-                        agent_name="meta",
-                    )
-                await self.end_chat_turn(role="meta")
-                self.current_question = ""
-                return
-            elif model in self.available_image_models:
-                self.image_model_name = model
-                logger.debug(f"switching to image model {model}")
-                self._reinitialize_image_model()
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message=f"Image model set to {self.image_model_name}",
-                    agent_name="meta",
-                )
-                self.current_question = ""
-                await self.end_chat_turn(role="meta")
-                return
-            else:
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message=f"Model '{model}' not found",
-                    agent_name="meta",
-                )
-                self.current_question = ""
-                self.end_chat_turn(role="meta")
-                return
-
-        # streaming
-        if question.startswith("stream on"):
-            await self.end_chat_turn(role="meta")
-            self.ag.stream_tokens = True
-            # if the agent doesn't support streaming, stream_tokens will be None
-            if self.ag.stream_tokens is not None:
-                # self.query_one(StatusBar).enable_stream_selector()
-                # self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
-                await self.add_to_chat_message(
-                    role="assistant", message="Stream tokens are on", agent_name="meta"
-                )
-            else:
-                # self.query_one(StatusBar).disable_stream_selector()
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message="Stream tokens are currently disabled",
-                    agent_name="meta",
-                )
-
-            await self.end_chat_turn(role="meta")
-            self.status_container.stream_switch.refresh()
-            return
-        if question.startswith("stream off"):
-            await self.end_chat_turn(role="meta")
-            self.ag.stream_tokens = False
-            # if the agent doesn't support streaming, stream_tokens will be None
-            if self.ag.stream_tokens is not None:
-                # self.query_one(StatusBar).enable_stream_selector()
-                # self.query_one(StatusBar).set_streaming(self.ag.stream_tokens)
-                await self.add_to_chat_message(
-                    role="assistant", message="Stream tokens are off", agent_name="meta"
-                )
-            else:
-                # self.query_one(StatusBar).disable_stream_selector()
-                await self.add_to_chat_message(
-                    role="assistant",
-                    message="Stream tokens are currently disabled",
-                    agent_name="meta",
-                )
-
-            await self.end_chat_turn(role="meta")
-            return
-        if question == ("stream"):
-            await self.end_chat_turn(role="meta")
-            await self.add_to_chat_message(
-                role="assistant",
-                message=(
-                    f"Stream tokens are " f"{'on' if self.ag.stream_tokens else 'off'}"
-                ),
-                agent_name="meta",
-            )
-            await self.end_chat_turn(role="meta")
-            return
-
-        # Normal user question
+        # If no command matched, treat it as a normal question
         self.current_question = question
         await self.end_chat_turn(role="user")
         try:
             await self.ag.ask(question)
         except Exception as e:
-            logger.critical(f"Error running autogen: {e}")
+            logger.exception(f"Error running autogen: {e}", exc_info=e)
             await self.add_to_chat_message(
                 role="assistant",
                 message=f"Error running autogen: {e}",
                 agent_name="meta",
             )
-
-        # Assistant is done
         await self.end_chat_turn(role="assistant")
+
+    async def handle_help(self):
+        """Displays help information to the user."""
+        help_message = (
+            "Available Commands:\n\n"
+            " - new: start a new session\n"
+            " - agents: show available agents\n"
+            " - agent <agent>: set the agent\n"
+            " - models: show available models\n"
+            " - model <model>: set the model\n"
+            " - temperature <temperature>: set the temperature\n"
+            " - summary: summarize the conversation\n"
+            " - stream [on|off]: turn stream tokens on or off\n"
+            " - dall-e <prompt>: generate an image from the prompt\n"
+        )
+        await self.add_to_chat_message(
+            role="assistant",
+            message=help_message,
+            agent_name="meta",
+        )
+        await self.end_chat_turn(role="meta")
+
+    async def handle_new_session(self):
+        """Starts a new session."""
+        if len(self.record.turns) == 0:
+            # Already in a new session
+            await self.add_to_chat_message(
+                role="assistant",
+                message="You're already in a new session.",
+                agent_name="meta",
+            )
+            await self.end_chat_turn(role="meta")
+            return
+        # Start a new session
+        self.message_container.clear()
+        self.record = await self.history_container.new_session()
+        self._current_llm_model = self.mm.default_chat_model
+        self.llm_temperature = self.mm.default_chat_temperature
+        await self.set_agent_and_model(
+            agent=self.default_agent,
+            model=self._current_llm_model,
+            model_context=None,
+        )
+        await self.add_to_chat_message(
+            role="assistant",
+            message="Started a new session.",
+            agent_name="meta",
+        )
+        await self.end_chat_turn(role="meta")
+
+    async def handle_list_agents(self):
+        """Lists available agents."""
+        agent_list = "Available Agents:\n\n"
+        for agent in self.chooseable_agents:
+            if agent == self._current_agent:
+                agent_list += f" - *{agent}* (current)\n"
+            else:
+                agent_list += f" - {agent}\n"
+        await self.add_to_chat_message(
+            role="assistant",
+            message=agent_list,
+            agent_name="meta",
+        )
+        await self.end_chat_turn(role="meta")
+
+    async def handle_set_agent(self, agent_name: str):
+        """Sets the current agent."""
+        agent_name = agent_name.strip()
+        if agent_name not in self.agents:
+            await self.add_to_chat_message(
+                role="assistant",
+                message=f"Agent '{agent_name}' not found.",
+                agent_name="meta",
+            )
+            await self.end_chat_turn(role="meta")
+            return
+        await self.set_agent_and_model(agent=agent_name)
+        await self.add_to_chat_message(
+            role="assistant",
+            message=f"Agent set to {agent_name}\n\nModel set to {self.ag.model}",
+            agent_name="meta",
+        )
+        await self.end_chat_turn(role="meta")
+
+    async def handle_list_models(self):
+        """Lists available models."""
+        model_list = "Available Models:\n\n"
+
+        model_list += "- LLM Models:\n"
+        for model in self.available_llm_models:
+            if model == self._current_llm_model:
+                model_list += f" - *{model}* (current)\n"
+            else:
+                model_list += f" - {model}\n"
+
+        if self.available_image_models:
+            model_list += "\n- Image Models:\n"
+            for model in self.available_image_models:
+                if model == self.image_model_name:
+                    model_list += f" - *{model}* (current)\n"
+                else:
+                    model_list += f" - {model}\n"
+
+        await self.add_to_chat_message(
+            role="assistant",
+            message=model_list,
+            agent_name="meta",
+        )
+        self.current_question = ""
+        await self.end_chat_turn(role="meta")
+
+    async def handle_set_model(self, model_name: str):
+        """Sets the current model."""
+        model_name = model_name.strip()
+        if model_name in self.available_llm_models:
+            logger.debug(f"Switching to LLM model '{model_name}'")
+            try:
+                await self.set_agent_and_model(model=model_name)
+            except ValueError as e:
+                await self.add_to_chat_message(
+                    role="assistant",
+                    message=f"Error setting model: {e}",
+                    agent_name="meta",
+                )
+            else:
+                await self.add_to_chat_message(
+                    role="assistant",
+                    message=f"Model set to {self._current_llm_model}",
+                    agent_name="meta",
+                )
+            await self.end_chat_turn(role="meta")
+            self.current_question = ""
+        elif model_name in self.available_image_models:
+            logger.debug(f"Switching to image model '{model_name}'")
+            self.image_model_name = model_name
+            self._reinitialize_image_model()
+            await self.add_to_chat_message(
+                role="assistant",
+                message=f"Image model set to {self.image_model_name}",
+                agent_name="meta",
+            )
+            self.current_question = ""
+            await self.end_chat_turn(role="meta")
+        else:
+            await self.add_to_chat_message(
+                role="assistant",
+                message=f"Model '{model_name}' not found.",
+                agent_name="meta",
+            )
+            self.current_question = ""
+            await self.end_chat_turn(role="meta")
+
+    async def handle_stream_toggle(self, option: str):
+        """Toggles stream tokens on or off."""
+        option = option.lower()
+        if option == "on":
+            self.ag.stream_tokens = True
+            message = "Stream tokens are now ON."
+        elif option == "off":
+            self.ag.stream_tokens = False
+            message = "Stream tokens are now OFF."
+        else:
+            message = (
+                "Invalid option for stream command. Use 'stream on' or 'stream off'."
+            )
+        if self.ag.stream_tokens is None:
+            message = "Stream tokens are currently disabled for this agent."
+        await self.add_to_chat_message(
+            role="assistant",
+            message=message,
+            agent_name="meta",
+        )
+        # todo: not sure this is needed
+        # self.status_container.stream_switch.refresh()
+        await self.end_chat_turn(role="meta")
+
+    async def handle_stream_status(self):
+        """Displays the current stream tokens status."""
+        if self.ag.stream_tokens is None:
+            message = "Stream tokens are currently disabled for this agent."
+        else:
+            status = "ON" if self.ag.stream_tokens else "OFF"
+            message = f"Stream tokens are currently {status}."
+        await self.add_to_chat_message(
+            role="assistant",
+            message=message,
+            agent_name="meta",
+        )
+        await self.end_chat_turn(role="meta")
 
     def load_agents(self) -> dict:
         """Read the agent definition files and load the agents"""
@@ -902,13 +922,3 @@ class WebChatApp:
 
         logger.info(f"Agent set to {agent}")
         logger.info(f"Model set to {self.ag.model}")
-
-
-# if __name__ in {"__main__", "__mp_main__"}:
-#     mchat_app = WebChatApp()
-#     mchat_app.run(
-#         port=8881,
-#         title="MChat - Multi-Model Chat Framework",
-#         favicon="static/favicon-32x32.png",
-#         dark=True,
-#     )

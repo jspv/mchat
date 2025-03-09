@@ -1,6 +1,5 @@
 import asyncio
 import copy
-import http.client
 import importlib
 import logging
 import os
@@ -46,6 +45,7 @@ from autogen_ext.models.openai import (
     AzureOpenAIChatCompletionClient,
     OpenAIChatCompletionClient,
 )
+from dynaconf import DynaconfFormatError
 from openai import OpenAI
 from pydantic.networks import HttpUrl
 
@@ -202,8 +202,38 @@ class ModelConfigEmbeddingAzure(ModelConfig):
 class ModelManager:
     def __init__(self):
         # Load all the models from the settings
-        self.model_configs = settings["models"].to_dict()
-        self.config: Dict[str, ModelConfig] = {}
+
+        try:
+            # Attempt to access settings
+            # self.openai_api_key = settings.openai_api_key
+            self.model_configs = settings["models"].to_dict()
+            self.config: Dict[str, ModelConfig] = {}
+
+        except AttributeError as e:
+            # Directly missing attribute within Dynaconf
+            missing_attr = str(e).split("'")[-2]
+            error_message = (
+                f"AMissing required setting: '{missing_attr}'. Please "
+                f"add it to your settings file."
+            )
+            logger.exception(error_message, exc_info=e)
+            raise RuntimeError(error_message) from e
+
+        except DynaconfFormatError as e:
+            # Handle cases where Dynaconf fails due to interpolation errors
+            if "has no attribute" in str(e):
+                missing_attr = str(e).split("'")[-2]
+                error_message = (
+                    f"Missing required setting: '{missing_attr}'. Please "
+                    f"add it to your settings or secrets file OR remove the "
+                    f"models using it from the settings file."
+                )
+                logger.exception(error_message, exc_info=e)
+                raise RuntimeError(error_message) from e
+            else:
+                # If it's another Dynaconf error, log and raise it
+                logger.exception("Dynaconf error", exc_info=e)
+                raise RuntimeError(f"Dynaconf encountered an error: {e}") from e
 
         # The constructors for the various model types
         model_types = {
@@ -609,6 +639,8 @@ class AutogenManager(object):
             else ""
         )
 
+        # TODO: what to do when the model is specified for a team-based agent that
+        # currently this is ingored.
         if "type" in agent_data and agent_data["type"] == "team":
             # Team-based Agents
             self.agent_team = self._create_team(agent_data["team_type"], agent_data)
@@ -928,44 +960,6 @@ class LLMTools:
         """Builds the intent prompt template"""
 
         self.mm = ModelManager()
-
-        # # build the intent chain
-        # self.intent_chain = (
-        #     ChatPromptTemplate.from_template(intent_prompt)
-        #     | self.mm.open_model(self.mm.default_memory_model)
-        #     | StrOutputParser()
-        # )
-
-        # # build the summary chain
-        # self.summary_label_chain = (
-        #     ChatPromptTemplate.from_template(label_prompt)
-        #     | self.mm.open_model(self.mm.default_memory_model)
-        #     | StrOutputParser()
-        # )
-
-    async def aget_intent(self, question: str, memory) -> str:
-        """Returns the intent of the input"""
-
-        # get up to the last 3 turns of the conversation from memory
-        history = memory.load_memory_variables({})["history"]
-        conversation = self._parse_chat_history(history, max_turns=3)
-
-        out = await self.intent_chain.ainvoke(
-            {"conversation": conversation, "input": question}
-        )
-        return out
-
-    def get_intent(self, question: str, memory) -> str:
-        """Returns the intent of the input"""
-
-        # get up to the last 3 turns of the conversation from memory
-        history = memory.load_memory_variables({})["history"]
-        conversation = self._parse_chat_history(history, max_turns=3)
-
-        out = self.intent_chain.invoke(
-            {"conversation": conversation, "input": question}
-        )
-        return out
 
     @staticmethod
     async def aget_summary_label(conversation: str) -> str:

@@ -1,8 +1,10 @@
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Callable, TypeAlias
+from typing import Callable, List, Optional
 
-import apsw.bestpractice
+import apsw
+from apsw.bestpractice import apply as apply_best_practice
+from apsw.bestpractice import recommended as recommended_practice
 from nicegui import ui
 
 from mchat.conversation import ConversationRecord
@@ -11,12 +13,77 @@ from mchat.styles import colors as c
 
 logger = logging.getLogger(__name__)
 
-
 # Define type alias for Callbacks
-CallbackType: TypeAlias = Callable[..., None] | None
+CallbackType = Optional[Callable[..., None]]
 
 
-class HistorySessionBox(object):
+class DatabaseManager:
+    """Class to manage database operations."""
+
+    def __init__(self, db_path: str = "db.db") -> None:
+        self.db_path = db_path
+        self._initialize_db()
+
+    def _initialize_db(self) -> None:
+        """Initialize the SQLite database."""
+        apply_best_practice(recommended_practice)
+        with self._connect() as conn:
+            conn.cursor().execute(
+                "CREATE TABLE IF NOT EXISTS Conversations (id TEXT PRIMARY KEY, data TEXT)"
+            )
+
+    def _connect(self) -> apsw.Connection:
+        """Establish a connection to the SQLite database."""
+        try:
+            return apsw.Connection(self.db_path)
+        except apsw.Error as e:
+            logger.error(f"Error connecting to database: {e}")
+            raise
+
+    def write_conversation(self, record: ConversationRecord) -> None:
+        """Write or update a conversation record in the database."""
+        serialized_conversation = (
+            record.to_json()
+        )  # Use a dictionary method for serialization
+        query = "INSERT OR REPLACE INTO Conversations (id, data) VALUES (?, ?)"
+        try:
+            with self._connect() as conn:
+                conn.cursor().execute(query, (record.id, serialized_conversation))
+        except apsw.Error as e:
+            logger.error(f"Failed to write conversation to database: {e}")
+
+    def read_conversation(self, conversation_id: str) -> Optional[ConversationRecord]:
+        """Read a conversation record from the database."""
+        query = "SELECT data FROM Conversations WHERE id=?"
+        try:
+            with self._connect() as conn:
+                row = conn.cursor().execute(query, (conversation_id,)).fetchone()
+            return ConversationRecord.from_json(row[0]) if row else None
+        except apsw.Error as e:
+            logger.error(f"Failed to read conversation from database: {e}")
+            return None
+
+    def delete_conversation(self, record: ConversationRecord) -> None:
+        """Delete a conversation record from the database."""
+        query = "DELETE FROM Conversations WHERE id=?"
+        try:
+            with self._connect() as conn:
+                conn.cursor().execute(query, (record.id,))
+        except apsw.Error as e:
+            logger.error(f"Failed to delete conversation from the database: {e}")
+
+    def get_all_conversation_ids(self) -> List[str]:
+        """Retrieve all conversation IDs from the database."""
+        query = "SELECT id FROM Conversations"
+        try:
+            with self._connect() as conn:
+                return [row[0] for row in conn.cursor().execute(query).fetchall()]
+        except apsw.Error as e:
+            logger.error(f"Failed to retrieve conversation IDs: {e}")
+            return []
+
+
+class HistorySessionBox:
     """A container for a single chat history session"""
 
     _callback: CallbackType = None  # Shared among all instances
@@ -93,7 +160,7 @@ class HistorySessionBox(object):
 
     @classmethod
     def set_callback(cls, callback: CallbackType) -> None:
-        """set the clilck callback for all HistorySessionBox"""
+        """Set the click callback for all HistorySessionBox"""
         cls._callback = callback
 
     @property
@@ -158,32 +225,33 @@ class HistoryContainer:
     def __init__(
         self, new_record_callback: CallbackType, new_label: str, app: object
     ) -> None:
-        self.sessions: list[HistorySessionBox] = []
+        self.db_manager = DatabaseManager()
+        self.sessions: List[HistorySessionBox] = []
         self.new_label = new_label
         self.new_record_callback = new_record_callback
         self.app = app
-        self._active_session: HistorySessionBox | None = None
+        self._active_session: Optional[HistorySessionBox] = None
 
         HistorySessionBox.set_callback(self.history_card_clicked_callback)
-        self.connection = self._initialize_db()
+        # self.connection = self._initialize_db()
 
         with ui.left_drawer(
             top_corner=True, bottom_corner=True
         ) as self.history_container:
             ui.label("History").style("font-size: 1.5em; font-weight: bold")
 
+            conversation_ids = self.db_manager.get_all_conversation_ids()
+
             records = [
-                self._read_conversation_from_db(row[0])
-                for row in self.connection.cursor()
-                .execute("SELECT id FROM Conversations")
-                .fetchall()
+                self.db_manager.read_conversation(conversation_id)
+                for conversation_id in conversation_ids
             ]
 
-            # add previous sessions
+            # Add previous sessions
             for record in sorted(records, key=lambda x: x.created):
                 self._add_previous_session(record)
 
-            # add a new session and make it active
+            # Add a new session and make it active
             self.active_session = HistorySessionBox(
                 record=ConversationRecord(), new_label=self.new_label
             )
@@ -191,11 +259,15 @@ class HistoryContainer:
 
     @property
     def active_record(self) -> ConversationRecord:
-        return self._active_session.record
+        if self._active_session:
+            return self._active_session.record
+        raise ValueError("No active session found")
 
     @property
     def active_session(self) -> HistorySessionBox:
-        return self._active_session
+        if self._active_session:
+            return self._active_session
+        raise ValueError("No active session found")
 
     @active_session.setter
     def active_session(self, value: HistorySessionBox) -> None:
@@ -206,85 +278,53 @@ class HistoryContainer:
             if session != self._active_session:
                 session.active = False
 
-    def _initialize_db(self) -> apsw.Connection:
-        """Initialize the SQLite database."""
-        apsw.bestpractice.apply(apsw.bestpractice.recommended)
-        conn = apsw.Connection("db.db")
-        conn.cursor().execute(
-            "CREATE TABLE IF NOT EXISTS Conversations (id TEXT PRIMARY KEY, data TEXT)"
-        )
-        return conn
-
-    def _write_conversation_to_db(self, record: ConversationRecord) -> None:
-        """Write or update a conversation record in the database."""
-        serialized_conversation = record.to_json()
-        self.connection.cursor().execute(
-            "INSERT OR REPLACE INTO Conversations (id, data) VALUES (?, ?)",
-            (record.id, serialized_conversation),
-        )
-
-    def _read_conversation_from_db(self, id: str) -> ConversationRecord:
-        row = (
-            self.connection.cursor()
-            .execute("SELECT data FROM Conversations WHERE id=?", (id,))
-            .fetchone()
-        )
-        return ConversationRecord.from_json(row[0]) if row else ConversationRecord()
-
-    def _delete_conversation_from_db(self, record: ConversationRecord) -> None:
-        """Delete a conversation record from the database."""
-        self.connection.cursor().execute(
-            "DELETE FROM Conversations WHERE id=?", (record.id,)
-        )
+    def save_record(self, record: ConversationRecord) -> None:
+        self.db_manager.write_conversation(record)
 
     def _add_previous_session(self, record: ConversationRecord) -> HistorySessionBox:
-        """returns a new HistorySessionBox to the HistoryContainer."""
+        """Returns a new HistorySessionBox to the HistoryContainer."""
         with self.history_container:
-            self.active_session = HistorySessionBox(
+            previous_session = HistorySessionBox(
                 record=record,
                 new_label=self.new_label,
                 label=record.summary,
             )
-        self.sessions.append(self.active_session)
-        # self.active_session.active = True
-        return self.active_session
+        self.sessions.append(previous_session)
+        return previous_session
 
     def _add_session(
-        self, record: ConversationRecord | None = None, label: str = ""
+        self, record: Optional[ConversationRecord] = None, label: str = ""
     ) -> HistorySessionBox:
         """Add a new session to the HistoryContainer and set it as active."""
-
         record = record or ConversationRecord()  # Ensure a valid record is used
 
         with self.history_container:
-            self.active_session = HistorySessionBox(
+            new_session = HistorySessionBox(
                 record=record, new_label=self.new_label, label=label
             )
 
-        self.sessions.append(self.active_session)
+        self.sessions.append(new_session)
+        self.active_session = new_session
         return self.active_session
 
     async def delete_history_box(self, session_box: HistorySessionBox) -> None:
-        """Delete a HistorySessionBox from the HistoryContainer"""
-        # check to see if this is the last session
+        """Delete a HistorySessionBox from the HistoryContainer."""
         if self.session_count == 1:
             session_box.delete()
-            self._delete_conversation_from_db(session_box.record)
+            self.db_manager.delete_conversation(session_box.record)
             self.sessions.remove(session_box)
             await self.new_session()
         elif session_box == self.active_session:
-            # need to pick a new active session
+            # Need to pick a new active session
             pos = self.sessions.index(session_box)
-            if pos == 0:
-                self.active_session = self.sessions[1]
-            else:
-                self.active_session = self.sessions[pos - 1]
-
+            self.active_session = (
+                self.sessions[pos - 1] if pos > 0 else self.sessions[1]
+            )
             session_box.delete()
-            self._delete_conversation_from_db(session_box.record)
+            self.db_manager.delete_conversation(session_box.record)
             self.sessions.remove(session_box)
 
-            # call the callback to load the new active session
+            # Call the callback to load the new active session
             await self.active_session.callback(
                 {
                     "action": "load",
@@ -294,62 +334,52 @@ class HistoryContainer:
             )
         else:
             session_box.delete()
-            self._delete_conversation_from_db(session_box.record)
+            self.db_manager.delete_conversation(session_box.record)
             self.sessions.remove(session_box)
 
     async def update_conversation(self, record: ConversationRecord):
         """Update the active session with a new ConversationRecord."""
-
-        # get the last 10 turns
         conversation = [
             {"user": turn.prompt, "ai": turn.responses} for turn in record.turns[-10:]
         ]
-        record.summary = await LLMTools.aget_summary_label(conversation)
+        try:
+            record.summary = await LLMTools.aget_summary_label(conversation)
+        except Exception as e:
+            logger.error(f"Error updating conversation summary: {e}")
 
-        # update the active session
         self.active_session.update_box(record)
-
-        # update the database
-        self._write_conversation_to_db(record)
+        self.db_manager.write_conversation(record)
 
     async def new_session(self) -> ConversationRecord:
-        """Add a new empty session to the HistoryContainer and set it as active"""
+        """Add a new empty session to the HistoryContainer and set it as active."""
         self._add_session()
-        # self.scroll_to_end()
         return self.active_session.record
 
     async def history_card_clicked_callback(self, click_args: dict) -> None:
-        """Callback for when a HistorySessionBox is clicked"""
+        """Callback for when a HistorySessionBox is clicked."""
         action: str = click_args["action"]
         session_box: HistorySessionBox = click_args["session_box"]
 
-        # if the ui is busy, ignore the click
         if self.app.ui_is_busy:
             ui.notify("busy", color="red")
             return
 
-        assert action in ["load", "copy", "delete"]
+        if action not in ["load", "copy", "delete"]:
+            logging.error(f"Invalid card click action received: {action}")
+            ui.notify("Invalid action", color="red")
+            return
 
-        if action == "load":
-            if self.active_session == session_box:
-                return
+        if action == "load" and self.active_session != session_box:
             self.active_session = session_box
             await self.new_record_callback(session_box.record)
-            return
-
-        if action == "delete":
+        elif action == "delete":
             await self.delete_history_box(session_box)
             await self.new_record_callback(self.active_session.record)
-            return
-
-        if action == "copy":
+        elif action == "copy":
             new_record = session_box.record.copy()
             self._add_session(new_record, label=session_box.label)
             await self.new_record_callback(self.active_session.record)
-            return
 
     @property
     def session_count(self) -> int:
-        # return the number of sessions in the history container
-        # subtract 1 to account for the header
         return len(self.sessions)
