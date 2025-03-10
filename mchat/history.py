@@ -357,15 +357,12 @@ class HistoryContainer:
         """Add a new empty session to the HistoryContainer and set it as active."""
         # see if there is an existing empty session
         for session in self.sessions:
-            logger.debug(f"Session: {session.record.turns}")
             if not session.record.turns:
-                logger.debug("Found existing empty session")
                 self.active_session = session
                 await self.new_record_callback(session.record)
                 return
         self.active_session = self._add_session()
         await self.new_record_callback(self.active_session.record)
-        # return self.active_session.record
 
     async def history_card_clicked_callback(self, click_args: dict) -> None:
         """Callback for when a HistorySessionBox is clicked."""
