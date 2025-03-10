@@ -29,7 +29,8 @@ class DatabaseManager:
         apply_best_practice(recommended_practice)
         with self._connect() as conn:
             conn.cursor().execute(
-                "CREATE TABLE IF NOT EXISTS Conversations (id TEXT PRIMARY KEY, data TEXT)"
+                "CREATE TABLE IF NOT EXISTS Conversations (id TEXT PRIMARY KEY, "
+                "data TEXT)"
             )
 
     def _connect(self) -> apsw.Connection:
@@ -42,9 +43,7 @@ class DatabaseManager:
 
     def write_conversation(self, record: ConversationRecord) -> None:
         """Write or update a conversation record in the database."""
-        serialized_conversation = (
-            record.to_json()
-        )  # Use a dictionary method for serialization
+        serialized_conversation = record.to_json()
         query = "INSERT OR REPLACE INTO Conversations (id, data) VALUES (?, ?)"
         try:
             with self._connect() as conn:
@@ -238,7 +237,11 @@ class HistoryContainer:
         with ui.left_drawer(
             top_corner=True, bottom_corner=True
         ) as self.history_container:
-            ui.label("History").style("font-size: 1.5em; font-weight: bold")
+            with ui.row().classes("w-full justify-between gap-2"):
+                ui.label("History").style("font-size: 1.5em; font-weight: bold")
+                ui.button(icon="add").props("outline round dense").on(
+                    "click", self.new_session
+                )
 
             conversation_ids = self.db_manager.get_all_conversation_ids()
 
@@ -350,10 +353,19 @@ class HistoryContainer:
         self.active_session.update_box(record)
         self.db_manager.write_conversation(record)
 
-    async def new_session(self) -> ConversationRecord:
+    async def new_session(self) -> None:
         """Add a new empty session to the HistoryContainer and set it as active."""
-        self._add_session()
-        return self.active_session.record
+        # see if there is an existing empty session
+        for session in self.sessions:
+            logger.debug(f"Session: {session.record.turns}")
+            if not session.record.turns:
+                logger.debug("Found existing empty session")
+                self.active_session = session
+                await self.new_record_callback(session.record)
+                return
+        self.active_session = self._add_session()
+        await self.new_record_callback(self.active_session.record)
+        # return self.active_session.record
 
     async def history_card_clicked_callback(self, click_args: dict) -> None:
         """Callback for when a HistorySessionBox is clicked."""

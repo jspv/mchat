@@ -230,7 +230,19 @@ class WebChatApp:
                 ui.context.client.on_disconnect(
                     lambda: logging.getLogger(__name__).parent.removeHandler(handler)
                 )
-                logger.info("Initialized UI Logging")
+                log_record = logger.makeRecord(
+                    __name__,
+                    logging.INFO,
+                    "",
+                    0,
+                    (
+                        f"UI Logging Initialized. log level: "
+                        f"{logging.getLevelName(logger.level)}"
+                    ),
+                    None,
+                    None,
+                )
+                handler.emit(log_record)
 
             # Footer and Input Area
             with ui.footer().classes(
@@ -618,15 +630,8 @@ class WebChatApp:
             await self.end_chat_turn(role="meta")
             return
         # Start a new session
-        self.message_container.clear()
-        self.record = await self.history_container.new_session()
-        self._current_llm_model = self.mm.default_chat_model
-        self.llm_temperature = self.mm.default_chat_temperature
-        await self.set_agent_and_model(
-            agent=self.default_agent,
-            model=self._current_llm_model,
-            model_context=None,
-        )
+        await self.history_container.new_session()
+
         await self.add_to_chat_message(
             role="assistant",
             message="Started a new session.",
