@@ -7,17 +7,14 @@ version = "0.1.0"
 authors = [{ name = "jspv", email = "jspvgithub@twinleaf.xyz" }]
 dependencies = [
     "textual-dominfo>=0.1.0",
-    "textual>=0.89.1",
+    "textual>=2.0.0",
     "pyperclip>=1.9.0",
     "dynaconf>=3.2.6",
     "textual-serve>=1.1.1",
     "rich>=13.9.4",
     "retry>=0.9.2",
-    "autogen-core",
-    "autogen-agentchat",
     "apsw>=3.47.2.0",
     "beautifulsoup4>=4.12.3",
-    "autogen-ext[azure,openai]",
     "click>=8.1.7",
     "aiofiles>=24.1.0",
     "playwright>=1.49.1",
@@ -27,6 +24,10 @@ dependencies = [
     "nicegui>=2.11.1",
     "latex2mathml>=3.77.0",
     "pypdf>=5.3.1",
+    "azure-identity>=1.20.0",
+    "autogen-core>=0.4.8.2",
+    "autogen-agentchat>=0.4.8.2",
+    "autogen-ext[azure,openai]>=0.4.8.2",
 ]
 
 [dependency-groups]

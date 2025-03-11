@@ -51,6 +51,7 @@ from pydantic.networks import HttpUrl
 
 from config import settings
 
+from .azure_auth import AzureADTokenProvider
 from .tool_utils import BaseTool
 
 requests_log = logging.getLogger("requests.packages.urllib3")
@@ -216,7 +217,6 @@ class ModelManager:
                 f"AMissing required setting: '{missing_attr}'. Please "
                 f"add it to your settings file."
             )
-            logger.exception(error_message, exc_info=e)
             raise RuntimeError(error_message) from e
 
         except DynaconfFormatError as e:
@@ -228,11 +228,9 @@ class ModelManager:
                     f"add it to your settings or secrets file OR remove the "
                     f"models using it from the settings file."
                 )
-                logger.exception(error_message, exc_info=e)
                 raise RuntimeError(error_message) from e
             else:
                 # If it's another Dynaconf error, log and raise it
-                logger.exception("Dynaconf error", exc_info=e)
                 raise RuntimeError(f"Dynaconf encountered an error: {e}") from e
 
         # The constructors for the various model types
@@ -256,6 +254,12 @@ class ModelManager:
                 self.config[model_id] = model_types[model_type][
                     model_config["api_type"]
                 ](model_id=model_id, model_type=model_type, **model_config)
+
+        # if there are any azure models, initialize the token provider
+        if self.filter_models({"api_type": ["azure"]}):
+            self.azure_token_provider = AzureADTokenProvider()
+        else:
+            self.azure_token_provider = None
 
         # Set the default models
         self.default_chat_model = settings.defaults.chat_model
@@ -377,7 +381,8 @@ class ModelManager:
                 model = AzureOpenAIChatCompletionClient(
                     model=model_kwargs["model"],
                     azure_deployment=model_kwargs["azure_deployment"],
-                    api_key=model_kwargs["api_key"],
+                    # api_key=model_kwargs["api_key"],
+                    azure_ad_token_provider=self.azure_token_provider,
                     api_version=model_kwargs["api_version"],
                     azure_endpoint=model_kwargs["azure_endpoint"],
                 )
@@ -497,12 +502,12 @@ class AutogenManager(object):
                                     name=tool_instance.name,
                                 )
                             else:
-                                logger.error(
+                                logger.warning(
                                     f"Tool {tool_instance.name} not loaded due to "
                                     f"setup failure: {tool_instance.load_error}"
                                 )
                 except Exception as e:
-                    print(f"Failed to load tool module {filename[:-3]}: {e}")
+                    logger.warning(f"Failed to load tool module {filename[:-3]}: {e}")
 
     def new_agent(
         self, agent_name, model_name, prompt, tools: list | None = None

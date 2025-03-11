@@ -179,7 +179,8 @@ st_research_assistant:
     - get_location
     - fetch_fred_data
     # - fetch_webpage
-  # also need to turn of reflect and format result as {result}
+  choosable: false
+  # TODO also need to turn of reflect and format result as {result}
 
 st_verifier:
   type: agent
@@ -197,6 +198,7 @@ st_verifier:
       - Gaps/Issues (if any)
       - Suggestions (if needed)
       - Next Steps or Final Summary
+  choosable: false
 
 st_summary_agent:
   type: agent
@@ -211,3 +213,4 @@ st_summary_agent:
     if available that illustrate concepts needed for the summary.
 
     Your report should end with the word "TERMINATE" to signal the end of the conversation.
+  choosable: false
