@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import importlib
+import json
 import logging
 import os
 from dataclasses import dataclass, fields
@@ -9,10 +10,12 @@ from typing import (
     AsyncIterable,
     Callable,
     Dict,
+    List,
     Literal,
     Optional,
 )
 
+import yaml
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.conditions import (
@@ -27,6 +30,7 @@ from autogen_agentchat.messages import (
     ToolCallExecutionEvent,
     ToolCallRequestEvent,
     ToolCallSummaryMessage,
+    UserInputRequestedEvent,
 )
 from autogen_agentchat.teams import (
     MagenticOneGroupChat,
@@ -460,12 +464,31 @@ class AutogenManager(object):
     def __init__(
         self,
         message_callback: Callable | None = None,
-        agents: dict | None = None,
+        agents: Dict | None = None,
+        agent_paths: List[str] | None = None,
         stream_tokens: bool = True,
     ):
+        # Ensure that exactly one of agents or agent_paths is provided
+        if (agents is None) == (
+            agent_paths is None
+        ):  # Both are None or both are provided
+            raise ValueError(
+                "You must specify exactly one of 'agents' or 'agent_paths', not both."
+            )
+
         self.mm = ModelManager()
         self._message_callback = message_callback  # send messages back to the UI
+
+        # Load agents
         self._agents = agents if agents is not None else {}
+        self._agents = self._load_agents(agent_paths) if agent_paths else self._agents
+        self._chooseable_agents = [
+            agent_name
+            for agent_name, val in self._agents.items()
+            if val.get("chooseable", True)
+        ]
+
+        # streaming
         self._stream_tokens = stream_tokens  # streaming currently enabled or not
         self._streaming_preference = stream_tokens  # remember the last setting
 
@@ -536,6 +559,21 @@ class AutogenManager(object):
         return await self.agent.save_state()
 
     @property
+    def agents(self) -> Dict:
+        """Return the agent structure"""
+        return self._agents
+
+    @property
+    def chooseable_agents(self) -> List:
+        """Return list of agents the UI can choose from"""
+        return self._chooseable_agents
+
+    @property
+    def model(self) -> str:
+        """Returns the current model"""
+        return self._model_id
+
+    @property
     def stream_tokens(self) -> bool | None:
         """Are we currently streaming tokens if they are supported
 
@@ -579,10 +617,44 @@ class AutogenManager(object):
         else:
             raise ValueError("stream_tokens can only be set if there is an agent")
 
-    @property
-    def model(self) -> str:
-        """Returns the current model"""
-        return self._model_id
+    def _load_agents(self, paths: List[str]) -> dict:
+        """Read the agent definition files and load the agents"""
+        agent_files = []
+        # load the agent files
+        for path in paths:
+            if os.path.isdir(path):
+                for filename in os.listdir(path):
+                    if filename.endswith(".json") or filename.endswith(".yaml"):
+                        agent_files.append(os.path.join(path, filename))
+            elif (
+                path.endswith(".json")
+                or path.endswith(".yaml")
+                and os.path.exists(path)
+            ):
+                agent_files.append(path)
+
+        agents = {}
+        for file in agent_files:
+            extension = os.path.splitext(file)[1]
+            with open(file) as f:
+                logger.debug(f"Loading agent file {file}")
+                try:
+                    if extension == ".json":
+                        file_agents = json.load(f)
+                    elif extension == ".yaml":
+                        file_agents = yaml.safe_load(f)
+                except FileNotFoundError:
+                    logger.error(f"Error: file {file} not found.")
+                except yaml.YAMLError as e:
+                    logger.error(f"Error parsing YAML file {file}: {e}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error parsing JSON file {file}: {e}")
+                except Exception as e:
+                    logger.exception(
+                        f"An unexpected error occurred processing {file}: {e}"
+                    )
+                agents.update(file_agents)
+        return agents
 
     def cancel(self) -> None:
         """Cancel the current conversation"""
@@ -614,10 +686,10 @@ class AutogenManager(object):
 
         Parameters
         ----------
-        agent : dict
-            agent object
+        agent : str
+            agent to use
         model_id: str
-            model to use""
+            model to use
         temperature : float, optional
             model temperature setting, by default 0.0
         stream_tokens: bool, optional
@@ -941,6 +1013,12 @@ class AutogenManager(object):
                     logger.info(f"tool call result: {response.content}")
                     await self._message_callback(
                         "done", agent=response.source, complete=True
+                    )
+                    continue
+                if isinstance(response, UserInputRequestedEvent):
+                    logger.info(f"UserInputRequestedEvent: {response.content}")
+                    await self._message_callback(
+                        response.content, agent=response.source, complete=True
                     )
                     continue
                 if isinstance(response, TaskResult):

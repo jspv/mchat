@@ -1,13 +1,11 @@
 import argparse
 import asyncio
-import json
 import logging
 import os
 import re
 from datetime import datetime
 from typing import Literal
 
-import yaml
 from nicegui import app, events, ui
 from pygments.formatters import HtmlFormatter
 
@@ -423,15 +421,8 @@ class WebChatApp:
             logger.debug("Verbose logging enabled")
 
         # Initialize agents and models
-        # load agents
-        self.agents = self.load_agents()
-        self.chooseable_agents = [
-            agent_name
-            for agent_name, val in self.agents.items()
-            if val.get("choosable", True)
-        ]
-        # Get an object to manage the AI models
 
+        # Get an object to manage the AI models
         try:
             self.mm = ModelManager()
         except RuntimeError as e:
@@ -440,8 +431,11 @@ class WebChatApp:
         # Get an object to manage autogen
         self.ag = AutogenManager(
             message_callback=self.on_llm_new_token,
-            agents=self.agents,
+            agent_paths=[DEFAULT_AGENT_FILE, EXTRA_AGENTS_FILE],
         )
+
+        # load agents
+        self.chooseable_agents = self.ag.chooseable_agents
         self.available_llm_models = self.mm.available_chat_models
         self.available_image_models = self.mm.available_image_models
 
@@ -657,7 +651,7 @@ class WebChatApp:
     async def handle_set_agent(self, agent_name: str):
         """Sets the current agent."""
         agent_name = agent_name.strip()
-        if agent_name not in self.agents:
+        if agent_name not in self.chooseable_agents:
             await self.add_to_chat_message(
                 role="assistant",
                 message=f"Agent '{agent_name}' not found.",
@@ -779,37 +773,6 @@ class WebChatApp:
         )
         await self.end_chat_turn(role="meta")
 
-    def load_agents(self) -> dict:
-        """Read the agent definition files and load the agents"""
-        if os.path.exists(DEFAULT_AGENT_FILE):
-            extension = os.path.splitext(DEFAULT_AGENT_FILE)[1]
-            with open(DEFAULT_AGENT_FILE) as f:
-                if extension == ".json":
-                    agents = json.load(f)
-                elif extension == ".yaml":
-                    agents = yaml.safe_load(f)
-                else:
-                    raise ValueError(
-                        f"unknown extension {extension} for {DEFAULT_AGENT_FILE}"
-                    )
-        else:
-            raise ValueError(f"no {DEFAULT_AGENT_FILE} file found")
-
-        # if there is an EXTRA_AGENTS_FILE, load the agents from there
-        if os.path.exists(EXTRA_AGENTS_FILE):
-            extension = os.path.splitext(EXTRA_AGENTS_FILE)[1]
-            with open(EXTRA_AGENTS_FILE, encoding="UTF-8") as f:
-                if extension == ".json":
-                    extra_agents = json.load(f)
-                elif extension == ".yaml":
-                    extra_agents = yaml.safe_load(f)
-                else:
-                    raise ValueError(
-                        f"unknown extension {extension} for {EXTRA_AGENTS_FILE}"
-                    )
-            agents.update(extra_agents)
-        return agents
-
     async def load_record(self, record):
         """Load a record into the chat, called from the history container"""
         self.record = record
@@ -875,17 +838,17 @@ class WebChatApp:
         """Change the agent and/or, updating the model to a compatible one if needed."""
         if not agent:
             agent = self._current_agent
-        if agent not in self.agents:
+        if agent not in self.chooseable_agents:
             raise ValueError(f"agent '{agent}' not found")
 
         # determine the model to use; if the agent defines a model, use it
         # otherwise try to use the current one, lastly use the default
 
-        compatible_models = self.mm.get_compatible_models(agent, self.agents)
+        compatible_models = self.mm.get_compatible_models(agent, self.ag.agents)
 
         if not model:
-            if self.agents[agent].get("model", None) is not None:
-                model = self.agents[agent]["model"]
+            if self.ag.agents[agent].get("model", None) is not None:
+                model = self.ag.agents[agent]["model"]
             elif self._current_llm_model in compatible_models:
                 model = self._current_llm_model
             else:
