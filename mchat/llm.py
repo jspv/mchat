@@ -255,11 +255,13 @@ class ModelManager:
                     model_config["api_type"]
                 ](model_id=model_id, model_type=model_type, **model_config)
 
-        # if there are any azure models, initialize the token provider
-        if self.filter_models({"api_type": ["azure"]}):
-            self.azure_token_provider = AzureADTokenProvider()
-        else:
-            self.azure_token_provider = None
+        # if there are any azure models with an api key of "provider", initialize the
+        # azure token provider
+        self.azure_token_provider = None
+        for azure_model in self.filter_models({"api_type": ["azure"]}):
+            if self.config[azure_model].api_key == "provider":
+                self.azure_token_provider = AzureADTokenProvider()
+                break
 
         # Set the default models
         self.default_chat_model = settings.defaults.chat_model
@@ -352,6 +354,8 @@ class ModelManager:
     ) -> object:
         """Opens a model and returns the model object"""
 
+        logger.debug(f"Opening model {model_id}")
+
         # Get the model record from the model_configs
         record = copy.deepcopy(self.config[model_id])
         assert record.api_type in ["open_ai", "azure"]
@@ -367,9 +371,15 @@ class ModelManager:
             **kwargs,
         }
         model_kwargs.pop("api_type")
+        model_kwargs.pop("model_type")
+
+        # if it's an azure model with a key of "provider", use the token provider
+        if record.api_type == "azure" and model_kwargs["api_key"] == "provider":
+            model_kwargs["azure_ad_token_provider"] = self.azure_token_provider
+            model_kwargs.pop("api_key")
 
         if record.model_type == "chat":
-            # if temperature is supported and currenlty is None, set to default
+            # if temperature is supported and currently is None, set to default
             if not getattr(record, "_temperature_support", True):
                 model_kwargs.pop("temperature")
             elif getattr(record, "temperature", None) is None:
@@ -378,14 +388,7 @@ class ModelManager:
             if record.api_type == "open_ai":
                 model = OpenAIChatCompletionClient(**model_kwargs)
             elif record.api_type == "azure":
-                model = AzureOpenAIChatCompletionClient(
-                    model=model_kwargs["model"],
-                    azure_deployment=model_kwargs["azure_deployment"],
-                    # api_key=model_kwargs["api_key"],
-                    azure_ad_token_provider=self.azure_token_provider,
-                    api_version=model_kwargs["api_version"],
-                    azure_endpoint=model_kwargs["azure_endpoint"],
-                )
+                model = AzureOpenAIChatCompletionClient(**model_kwargs)
             return model
 
         elif record.model_type == "image":
