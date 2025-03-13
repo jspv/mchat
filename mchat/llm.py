@@ -636,7 +636,7 @@ class AutogenManager(object):
         agents = {}
         for file in agent_files:
             extension = os.path.splitext(file)[1]
-            with open(file) as f:
+            with open(file, encoding="utf8") as f:
                 logger.debug(f"Loading agent file {file}")
                 try:
                     if extension == ".json":
