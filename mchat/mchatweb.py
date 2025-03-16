@@ -12,49 +12,58 @@ from pygments.formatters import HtmlFormatter
 from config import settings
 from mchat.history import HistoryContainer
 from mchat.llm import AutogenManager, ModelManager
+from mchat.logging_config import LoggerConfigurator
 from mchat.statusbar import StatusContainer
 from mchat.styles import colors as c
 
-plogger = logging.getLogger(__name__).parent
-plogger.setLevel("WARNING")
-log_handler = logging.FileHandler("debug.log", mode="a")
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-log_handler.setFormatter(formatter)
-plogger.addHandler(log_handler)
-
-# Add a console logger until the UI is running
-console_log_handler = logging.StreamHandler()
-console_log_handler.setFormatter(formatter)
-plogger.addHandler(console_log_handler)
-
 logger = logging.getLogger(__name__)
-logger.setLevel("WARNING")
 
 DEFAULT_AGENT_FILE = os.path.join("mchat", "default_agents.yaml")
 EXTRA_AGENTS_FILE = settings.get("extra_agents_file", None)
 
 
 class LogElementHandler(logging.Handler):
-    """A logging handler that emits messages to a log element."""
+    """
+    A logging handler that emits messages into a NiceGUI `ui.log` element.
+    """
 
     LOG_LEVEL_ICONS = {
-        logging.DEBUG: "🐞",
-        logging.INFO: "ℹ️",
-        logging.WARNING: "⚠️",
-        logging.ERROR: "❌",
-        logging.CRITICAL: "🔥",
+        "DEBUG": "🐞",
+        "INFO": "ℹ️",
+        "WARNING": "⚠️",
+        "ERROR": "❌",
+        "CRITICAL": "🔥",
     }
 
-    def __init__(self, element: ui.log, level: int = logging.NOTSET) -> None:
+    def __init__(self, element: ui.log):
+        super().__init__()
         self.element = element
-        super().__init__(level)
 
     def emit(self, record: logging.LogRecord) -> None:
+        """
+        Override the default emit() to push log messages into the UI element.
+        """
         try:
-            msg = self.format(record)
-            msg = f"{self.LOG_LEVEL_ICONS.get(record.levelno, '')} {msg}"
-            self.element.push(msg)
+            # Format the log record into a final message string
+            # (this uses any formatter that might be set on the handler)
+            message = self.format(record)
+
+            # filter out anything that's not from mchat
+            if "mchat" not in record.name:
+                return
+
+            # truncate the message if to 40 characters
+            if len(message) > 80:
+                message = message[:80] + "..."
+
+            # Pick an icon based on level name
+            icon = self.LOG_LEVEL_ICONS.get(record.levelname.upper(), "❔")
+
+            # Push the icon + message into the log element
+            self.element.push(f"{icon} {message}")
+
         except Exception:
+            # If formatting or pushing fails, handle error
             self.handleError(record)
 
 
@@ -139,6 +148,8 @@ class WebChatApp:
                 model_context=None,
             )
 
+            logger.info("Initializing UI...")
+
             # the queries below are used to expand the contend down to the footer
             # (content can then use flex-grow to expand)
             ui.query(".q-page").classes("flex")
@@ -222,25 +233,12 @@ class WebChatApp:
                 ui.label("DEBUG")
                 # self._debug_container = ui.scroll_area().classes("h-full p-4")
                 self.log = ui.log().classes("w-full whitespace-pre-wrap h-full")
-                handler = LogElementHandler(self.log)
-                logging.getLogger(__name__).parent.addHandler(handler)
-                logging.getLogger(__name__).parent.removeHandler(console_log_handler)
-                ui.context.client.on_disconnect(
-                    lambda: logging.getLogger(__name__).parent.removeHandler(handler)
-                )
-                log_record = logger.makeRecord(
-                    __name__,
-                    logging.INFO,
-                    "",
-                    0,
-                    (
-                        f"UI Logging Initialized. log level: "
-                        f"{logging.getLevelName(logger.level)}"
-                    ),
-                    None,
-                    None,
-                )
-                handler.emit(log_record)
+                self.ui_loghandler = LogElementHandler(self.log)
+
+                logging.getLogger().addHandler(self.ui_loghandler)
+                logging.getLogger().setLevel(logging.INFO)
+
+                logger.info("UI Logging Initialized")
 
             # Footer and Input Area
             with ui.footer().classes(
@@ -327,7 +325,6 @@ class WebChatApp:
                         card.on("click", lambda: input_area.run_method("focus"))
 
         logger.info("Starting MChat")
-        logger.debug("Debug logging enabled")
 
     @property
     def current_agent(self):
@@ -386,9 +383,12 @@ class WebChatApp:
         logger.exception("Unhandled Exception", exc_info=e)
         ui.notify(f"Exception: {e}", type="warning")
 
-    def run(self, **kwargs):
-        # callbacks don't propagate exceptions, so this sends them to ui.notify
+    def run(self, log_config: LoggerConfigurator = None, **kwargs):
+        self.log_config = log_config
+        self.log_config.add_console_filter("mchat", logging.DEBUG)
+        self.log_config.add_file_filter("mchat", logging.DEBUG)
         self.parse_args_and_initialize()
+        # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
         logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         ui.run(**kwargs)
@@ -414,11 +414,21 @@ class WebChatApp:
         parser.add_argument(
             "-v", "--verbose", help="Increase verbosity", action="store_true"
         )
-        args, unknown = parser.parse_known_args()
-        if args.verbose:
-            logger.setLevel("DEBUG")
-            logging.getLogger("mchat.llm").setLevel("DEBUG")
-            logger.debug("Verbose logging enabled")
+        args, _ = parser.parse_known_args()
+
+        # log_level = "DEBUG" if args.verbose else "WARNING"
+
+        # structlog.configure(
+        #     processors=[
+        #         structlog.processors.TimeStamper(fmt="iso"),
+        #         structlog.processors.StackInfoRenderer(),
+        #         structlog.processors.format_exc_info,
+        #         structlog.dev.ConsoleRenderer(),
+        #     ],
+        #     logger_factory=structlog.PrintLoggerFactory(),
+        #     cache_logger_on_first_use=True,
+        # )
+        # logger.info("Log level set", log_level=log_level)
 
         # Initialize agents and models
 
