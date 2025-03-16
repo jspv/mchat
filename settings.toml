@@ -41,9 +41,9 @@ generate_image_log_file = "generate_image.log"
 # - api_version = "api version"
 
 
-[models.chat.gpt-35-turbo]
+[models.chat.gpt-4o-mini]
 api_key = "@format {this.openai_api_key}"
-model = "gpt-3.5-turbo"
+model = "gpt-4o-mini"
 api_type = "open_ai"
 base_url = "https://api.openai.com/v1"
 
@@ -140,7 +140,7 @@ image_model = "dall-e-3"
 embedding_model = "text-embedding-ada-002"
 
 # for memory summary and history labels
-memory_model = "gpt-4o"
+memory_model = "gpt-4o-mini"
 memory_model_temperature = 0.1
 memory_model_max_tokens = 2048
 
