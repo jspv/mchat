@@ -166,6 +166,7 @@ testing/
 *.ipynb
 agents.yaml
 db.*
+debug.log*
 .python-version
 
 # Ignore dynaconf secret files

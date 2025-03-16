@@ -66,7 +66,7 @@ class RichFormatter(logging.Formatter):
             # --- Build main log line (with or without bracket markup) ---
             timestamp = self.formatTime(record)
             level = record.levelname.upper()
-            module = record.module
+            # module = record.module
             func = record.funcName
             lineno = record.lineno
             event = record.getMessage()
@@ -190,9 +190,11 @@ class LoggerConfigurator:
         :param log_to_console: Whether to log to the console. Default is True.
         :param log_to_file: Whether to log to a file. Default is False.
         :param file_path: The file path for the log file. Default is 'debug.log'.
-        :param console_log_level: The "base" log level for console output (default: WARNING).
+        :param console_log_level: The "base" log level for console output
+                                  (default: WARNING).
         :param file_log_level: The "base" log level for file output (default: WARNING).
-        :param max_bytes: The maximum size of the log file before rotation. Default is 5 MB.
+        :param max_bytes: The maximum size of the log file before rotation.
+                          Default is 5 MB.
         :param backup_count: The number of backup files to keep. Default is 5.
         """
         self.log_to_console = log_to_console
