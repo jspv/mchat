@@ -142,6 +142,21 @@ class WebChatApp:
 
         @ui.page("/")
         async def main_ui():
+            def connected():
+                # Add log event handler
+                self.ui_loghandler = LogElementHandler(
+                    self.log, log_level=self.log_level
+                )
+                logging.getLogger().addHandler(self.ui_loghandler)
+                logger.info("UI Logging Initialized")
+
+            def disconnected():
+                # Remove log event handler
+                logging.getLogger().removeHandler(self.ui_loghandler)
+
+            ui.context.client.on_connect(lambda: connected())
+            ui.context.client.on_disconnect(lambda: disconnected())
+
             await self.set_agent_and_model(
                 agent=self.default_agent,
                 model=self._current_llm_model,
@@ -234,13 +249,6 @@ class WebChatApp:
                 ui.label("DEBUG")
                 # self._debug_container = ui.scroll_area().classes("h-full p-4")
                 self.log = ui.log().classes("w-full whitespace-pre-wrap h-full")
-                self.ui_loghandler = LogElementHandler(
-                    self.log, log_level=self.log_level
-                )
-
-                logging.getLogger().addHandler(self.ui_loghandler)
-
-                logger.info("UI Logging Initialized")
 
             # Footer and Input Area
             with ui.footer().classes(
