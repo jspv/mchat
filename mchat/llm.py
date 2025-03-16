@@ -13,19 +13,23 @@ from typing import (
     List,
     Literal,
     Optional,
+    Sequence,
 )
 
 import yaml
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.base import TaskResult
+from autogen_agentchat.base import TaskResult, TerminatedException, TerminationCondition
 from autogen_agentchat.conditions import (
     ExternalTermination,
     MaxMessageTermination,
     TextMentionTermination,
 )
 from autogen_agentchat.messages import (
+    AgentEvent,
+    ChatMessage,
     ModelClientStreamingChunkEvent,
     MultiModalMessage,
+    StopMessage,
     TextMessage,
     ThoughtEvent,
     ToolCallExecutionEvent,
@@ -462,7 +466,49 @@ class DallEAPIWrapper:
             return f"Image Generatiom Error: {str(e)}"
 
 
+class IsCompleteTermination(TerminationCondition):
+    mm = ModelManager()
+    memory_model = mm.open_model(mm.default_memory_model)
+    prompt = """ Take a look at the conversation so far. If the conversation has
+    reached a natural conclusion and it is the clear that the agent had completed
+    the task and has provided a clear response, return True. Otherwise, return False.
+    ONLY return the word 'True' or 'False'.  Here is the conversation so far: 
+    {conversation}"""
+
+    def __init__(self):
+        self._is_terminated = False
+
+    @property
+    def terminated(self) -> bool:
+        return self._is_terminated
+
+    async def __call__(
+        self, messages: Sequence[AgentEvent | ChatMessage]
+    ) -> Optional[StopMessage]:
+        if self._is_terminated:
+            raise TerminatedException("Termination condition has already been reached")
+        system_message = IsCompleteTermination.prompt.format(conversation=messages)
+        out = await IsCompleteTermination.memory_model.create(
+            [SystemMessage(content=system_message)]
+        )
+        logger.debug(f"IsCompleteTermination response: {out.content.strip()}")
+        if out.content.strip().lower() == "true":
+            self._is_terminated = True
+            return StopMessage(
+                content="Agent is complete termination condition met",
+                source="IsCompleteTermination",
+            )
+        return None
+
+    async def reset(self):
+        self._is_terminated = False
+
+
 class AutogenManager(object):
+    # createa a model_manager for use with llmtools and AutogenManager
+    ag_mm = ModelManager()
+    ag_memory_model = ag_mm.open_model(ag_mm.default_memory_model)
+
     def __init__(
         self,
         message_callback: Callable | None = None,
@@ -820,12 +866,17 @@ class AutogenManager(object):
                 )
             self.terminator = ExternalTermination()  # for custom terminations
             terminators.append(self.terminator)
+            terminators.append(IsCompleteTermination())
             termination = reduce(lambda x, y: x | y, terminators)
 
-            # if there is only one agent, set oneshot to true
+            # new - defaulting oneshot to false
             self.oneshot = (
-                True if "oneshot" not in agent_data else agent_data["oneshot"]
+                False if "oneshot" not in agent_data else agent_data["oneshot"]
             )
+            # if there is only one agent, set oneshot to true
+            # self.oneshot = (
+            #     True if "oneshot" not in agent_data else agent_data["oneshot"]
+            # )
 
             self.agent_team = RoundRobinGroupChat(
                 [self.agent], termination_condition=termination
@@ -1082,25 +1133,26 @@ class AutogenManager(object):
 
 
 class LLMTools:
+    llmtools_mm = ModelManager()
+    llmtools_summary_model = llmtools_mm.open_model(llmtools_mm.default_memory_model)
+
     def __init__(self):
         """Builds the intent prompt template"""
-
-        self.mm = ModelManager()
 
     @staticmethod
     async def aget_summary_label(conversation: str) -> str:
         """Returns the a very short summary of a conversation suitable for a label"""
-        mm = ModelManager()
-        model_client = mm.open_model(mm.default_memory_model)
         system_message = label_prompt.format(conversation=conversation)
-        out = await model_client.create([SystemMessage(content=system_message)])
+        out = await LLMTools.llmtools_summary_model.create(
+            [SystemMessage(content=system_message)]
+        )
         return out.content
 
     @staticmethod
     async def get_conversation_summary(conversation: str) -> str:
         """Returns the summary of a conversation"""
-        mm = ModelManager()
-        model_client = mm.open_model(mm.default_memory_model)
         system_message = summary_prompt.format(conversation=conversation)
-        out = await model_client.create([SystemMessage(content=system_message)])
+        out = await LLMTools.llmtools_summary_model.create(
+            [SystemMessage(content=system_message)]
+        )
         return out.content
