@@ -35,9 +35,10 @@ class LogElementHandler(logging.Handler):
         "CRITICAL": "🔥",
     }
 
-    def __init__(self, element: ui.log):
+    def __init__(self, element: ui.log, log_level=logging.DEBUG):
         super().__init__()
         self.element = element
+        self.log_level = log_level
 
     def emit(self, record: logging.LogRecord) -> None:
         """
@@ -49,7 +50,7 @@ class LogElementHandler(logging.Handler):
             message = self.format(record)
 
             # filter out anything that's not from mchat
-            if "mchat" not in record.name:
+            if "mchat" not in record.name or record.levelno < self.log_level:
                 return
 
             # truncate the message if to 40 characters
@@ -233,10 +234,11 @@ class WebChatApp:
                 ui.label("DEBUG")
                 # self._debug_container = ui.scroll_area().classes("h-full p-4")
                 self.log = ui.log().classes("w-full whitespace-pre-wrap h-full")
-                self.ui_loghandler = LogElementHandler(self.log)
+                self.ui_loghandler = LogElementHandler(
+                    self.log, log_level=self.log_level
+                )
 
                 logging.getLogger().addHandler(self.ui_loghandler)
-                logging.getLogger().setLevel(logging.INFO)
 
                 logger.info("UI Logging Initialized")
 
@@ -385,8 +387,6 @@ class WebChatApp:
 
     def run(self, log_config: LoggerConfigurator = None, **kwargs):
         self.log_config = log_config
-        self.log_config.add_console_filter("mchat", logging.DEBUG)
-        self.log_config.add_file_filter("mchat", logging.DEBUG)
         self.parse_args_and_initialize()
         # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
@@ -416,19 +416,9 @@ class WebChatApp:
         )
         args, _ = parser.parse_known_args()
 
-        # log_level = "DEBUG" if args.verbose else "WARNING"
-
-        # structlog.configure(
-        #     processors=[
-        #         structlog.processors.TimeStamper(fmt="iso"),
-        #         structlog.processors.StackInfoRenderer(),
-        #         structlog.processors.format_exc_info,
-        #         structlog.dev.ConsoleRenderer(),
-        #     ],
-        #     logger_factory=structlog.PrintLoggerFactory(),
-        #     cache_logger_on_first_use=True,
-        # )
-        # logger.info("Log level set", log_level=log_level)
+        self.log_level = logging.DEBUG if args.verbose else logging.INFO
+        self.log_config.add_console_filter("mchat", self.log_level)
+        self.log_config.add_file_filter("mchat", self.log_level)
 
         # Initialize agents and models
 
@@ -792,7 +782,9 @@ class WebChatApp:
             self.current_question = ""
             self.ag.clear_memory()
             await self.set_agent_and_model(
-                agent=self.default_agent, model=self.mm.default_chat_model
+                agent=self.default_agent,
+                model=self.mm.default_chat_model,
+                model_context=None,
             )
         else:
             # load the parameters from the last turn and reinitialize

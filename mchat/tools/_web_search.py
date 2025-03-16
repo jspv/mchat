@@ -10,6 +10,8 @@ from pypdf import PdfReader
 from config import settings
 from mchat.tool_utils import BaseTool
 
+logger = logging.getLogger(__name__)
+
 
 class GoogleSearchTool(BaseTool):
     name = "google_search"
@@ -57,6 +59,7 @@ class GoogleSearchTool(BaseTool):
 
         try:
             # Perform the API request
+            logger.debug(f"Performing Google Custom Search for query: {query}")
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()  # Raise an exception for HTTP errors
             results = response.json().get("items", [])
@@ -116,12 +119,12 @@ class GoogleSearchTool(BaseTool):
                     return out
 
                 except requests.RequestException as req_error:
-                    logging.warning(
+                    logger.warning(
                         f"Error fetching page content from {page_url}: {req_error}"
                     )
                     return "Error fetching content."
                 except Exception as ex:
-                    logging.warning(
+                    logger.warning(
                         f"Unexpected error fetching content from {page_url}: {ex}"
                     )
                     return "Error fetching content."
@@ -143,8 +146,8 @@ class GoogleSearchTool(BaseTool):
             return enriched_results
 
         except requests.RequestException as e:
-            logging.error(f"API request error: {e}")
+            logger.error(f"API request error: {e}")
             raise RuntimeError(f"Error in Google Custom Search API request: {e}") from e
         except Exception as e:
-            logging.error(f"Unexpected error: {e}")
+            logger.error(f"Unexpected error: {e}")
             raise RuntimeError(f"An unexpected error occurred: {e}") from e
