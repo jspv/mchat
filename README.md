@@ -21,6 +21,9 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
 
 ![Screenshot3](screenshot3.png)
 
+Easy to modify agents and teams:
+![Screenshot4](screenshot4.png)
+
 ## TODO
 - [x] Copy text to past buffer when clicking on the response
 - [x] Agent support
@@ -47,12 +50,12 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
   - [Installation](#installation)
   - [Configuration](#configuration)
     - [Models](#models)
-    - [Model Lists](#model-lists)
-    - [Model Configuration](#model-configuration)
+    - [Important](#important)
+    - [Required Fields](#required-fields)
     - [Default Settings](#default-settings)
     - [Memory Model Configuration (NOTE: Currently disabled)](#memory-model-configuration-note-currently-disabled)
     - [Secrets Configuration](#secrets-configuration)
-  - [Agents](#agents)
+  - [Agents \& Teams](#agents--teams)
   - [Usage](#usage)
       - [Alternative Usage](#alternative-usage)
   - [Contributing](#contributing)
@@ -83,21 +86,39 @@ Open the settings.toml file in a text editor to configure your application. Here
 
 ### Models
 
-- model_families: A list of model families available, the default shows "oai_models" (OpenAI Models) and "ms_models" (Microsoft Models).  A Model family is a group of models that use the same API access token.
-  
-### Model Lists
+Sections need to start with model. (with period) and no other periods in the section name `models.type.model_id` model_id is what will show in the interface.
 
-For each model family, list names of the models supported in that family, precede each model with the same prefix used in for the model family.  The names you use do not have to match the actual ones used by the underlying API.  
+```
+[models.chat.gpt-4o]
+api_key = "@format {this.openai_api_key}"
+model = "gpt-4o"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+```
 
-- oai_models: A list of OpenAI models, including "oai_gpt-3.5-turbo" and "oai_gpt-4".
-- ms_models: A list of Microsoft models, including "ms_openai_gpt_35".
+### Important
+Image models and settings here are for expliclitly calling the immage models from the prompt. The generate_image tool does not use these settings, only the API key
 
-### Model Configuration
+### Required Fields
+Chat Models
+- api_type: ["open_ai", "azure"]
+- model_type: "chat"
+- model: "name of model"
+- api_key: "your key or dynaconf lookup to get the key"
+- model: "the openai name for the model"
 
-For each model, you can configure the following properties:
+Azure Chat Models (additional)
+- azure_endpoint: "URL for your endpoint"
+- azure_deployment: "the azure name for the model in your deployment"
+- api_version = "api version"
 
-- <model_name>.deployment: Specifies the deployment of the model, for OpenAI models, this is the actual OpenAI model name, for Microsoft models, this is the deployment name.
-- <model_name>.max_tokens: Specifies the maximum number of tokens for the model.
+Image Models
+- api_type: ["open_ai", "azure"]
+- model_type: "image"
+- model: "name of model"
+- size: "size of images to create"
+- num_images: "number of images to create"
+- api_key: "your key or dynaconf lookup to get the key"
 
 ### Default Settings
 
@@ -126,9 +147,9 @@ Note that some configuration options, such as API keys, are meant to be kept in 
 # ms_models_api_key = "ms_openai_api_key_goes_here"
 ```
 
-## Agents
+## Agents & Teams
 
-mchat comes with a default persona and two example agents *linux computer* and *financial manager*.  Additional agents can be added in a ```agents.yaml``` file at the top level (same level as this README) using a similar pattern to `mchat/default_personas.yaml` in the code.  When configuring personas, the ```extra_context``` list can allow you to respresent a multi-shot prompt, see the `linux computer` persona in `mchat/default_personas.json` as an example.
+mchat comes with a default persona and two example agents *linux computer* and *financial manager* and example round-robin and selector teams.  Additional agents and teams can be added in a ```agents.yaml``` file at the top level (same level as this README) using a similar pattern to `mchat/default_personas.yaml` in the code.  When configuring personas, the ```extra_context``` list can allow you to respresent a multi-shot prompt, see the `linux computer` persona in `mchat/default_personas.json` as an example.
 
 ## Usage
 1. Run the application in uv using the following command
