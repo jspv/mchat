@@ -27,6 +27,7 @@ from autogen_agentchat.messages import (
     ModelClientStreamingChunkEvent,
     MultiModalMessage,
     TextMessage,
+    ThoughtEvent,
     ToolCallExecutionEvent,
     ToolCallRequestEvent,
     ToolCallSummaryMessage,
@@ -109,6 +110,7 @@ class ModelConfigChatOpenAI(ModelConfig):
     api_type: Literal["open_ai"]
     base_url: HttpUrl | None = None
     temperature: float | None = None
+    model_info: dict | None = None
     _streaming_support: bool | None = True
     _tool_support: bool | None = True
     _json_support: bool | None = True
@@ -941,104 +943,142 @@ class AutogenManager(object):
         else:
             raise ValueError(f"Unknown team type {team_type}")
 
-    async def ask(self, message: str) -> TaskResult:
-        async def field_responses(
-            agent_run: AsyncIterable, oneshot: bool, **kwargs
-        ) -> TaskResult:
-            """Run the agent (or team) and handle the responses
+    async def ask(self, task: str) -> TaskResult:
+        self._cancelation_token = CancellationToken()
 
-            Parameters
-            ----------
-            agent_run : AsyncIterable
-                Function to run the agent
-            oneshot : bool
-                should the agent auto terminate after the first response
+        result: TaskResult = await self._consume_agent_stream(
+            agent_runner=self.agent_team.run_stream,
+            oneshot=self.oneshot,
+            task=task,
+            cancellation_token=self._cancelation_token,
+        )
 
-            Returns
-            -------
-            TaskResult
-            """
-            async for response in agent_run(**kwargs):
-                # Ingore the autogen tool call summary messages that follow a
-                # tool call
+        self._cancelation_token = None
+        logger.info(f"Final result: {result.stop_reason}")
+        return result
+
+    async def _consume_agent_stream(
+        self,
+        agent_runner: Callable[..., AsyncIterable],  # type of run_stream
+        oneshot: bool,
+        task: str,
+        cancellation_token: CancellationToken,
+    ) -> TaskResult:
+        """Run the agent team in streaming mode, handle responses, and return
+        final TaskResult."""
+        try:
+            async for response in agent_runner(
+                task=task, cancellation_token=cancellation_token
+            ):
+                # Dispatch to correct handler
+                if response is None:
+                    logger.debug("Ignoring None response")
+                    continue
+
                 if isinstance(response, ToolCallSummaryMessage):
-                    logger.debug(
-                        f"ignoring tool call summary message: {response.content}"
-                    )
+                    await self._handle_tool_summary(response)
                     continue
 
                 if isinstance(response, ModelClientStreamingChunkEvent):
-                    await self._message_callback(
-                        response.content, agent=response.source, complete=False
-                    )
+                    await self._handle_stream_chunk(response)
                     continue
 
                 if isinstance(response, TextMessage):
-                    # ignore "user", it is a repeat of the user message
-                    if response.source == "user":
-                        continue
-                    # if we're streaming no need to show TextMessage, we got the
-                    # tokens already
-                    logger.info(f"TextMessage: {response.content}")
-                    if not self._stream_tokens:
-                        await self._message_callback(
-                            response.content, agent=response.source, complete=True
-                        )
-                    if oneshot:
-                        # cleanly terminate the conversation
-                        self.terminator.set()
-                        response = TaskResult(
-                            messages=[response], stop_reason="oneshot"
-                        )
-                        break
-                    else:
-                        continue
+                    handled = await self._handle_text_message(response, oneshot=oneshot)
+                    if handled:
+                        return handled
+                    continue
 
                 if isinstance(response, MultiModalMessage):
-                    await self._message_callback(
-                        f"MM:{response.content}", agent=response.source, complete=True
-                    )
+                    await self._handle_multi_modal(response)
                     continue
 
                 if isinstance(response, ToolCallRequestEvent):
-                    tool_message = "calling tool\n"
-                    for tool in response.content:
-                        tool_message += (
-                            f"{tool.name} with arguments:\n{tool.arguments}\n"
-                        )
-                    tool_message += "..."
-                    await self._message_callback(tool_message, agent=response.source)
+                    await self._handle_tool_call_request(response)
                     continue
+
                 if isinstance(response, ToolCallExecutionEvent):
-                    logger.info(f"tool call result: {response.content}")
-                    await self._message_callback(
-                        "done", agent=response.source, complete=True
-                    )
+                    await self._handle_tool_call_execution(response)
                     continue
+
                 if isinstance(response, UserInputRequestedEvent):
-                    logger.info(f"UserInputRequestedEvent: {response.content}")
-                    await self._message_callback(
-                        response.content, agent=response.source, complete=True
-                    )
+                    await self._handle_user_input_request(response)
                     continue
+
                 if isinstance(response, TaskResult):
                     return response
-                if response is None:
-                    continue
-                await self._message_callback("\n\n<unknown>\n\n", flush=True)
+
+                # Unknown event
+                logger.warning(f"Received unknown response type: {response!r}")
+                await self._message_callback("<unknown>", flush=True)
                 await self._message_callback(repr(response), flush=True)
 
-            return response
+            # TODO: This is a placeholder for when the stream ends without a TaskResult
+            logger.error("Stream ended without a TaskResult")
+            return TaskResult(messages=[], stop_reason="end_of_stream")
+        except Exception as e:
+            logger.error(f"Error in agent stream: {e}")
+            await self._message_callback("Error in responses, see debug", flush=True)
+            return TaskResult(messages=[], stop_reason="error")
 
-        self._cancelation_token = CancellationToken()
-        result: TaskResult = await field_responses(
-            self.agent_team.run_stream,
-            oneshot=self.oneshot,
-            task=message,
-            cancellation_token=self._cancelation_token,
+    # - - Handlers for different response types
+
+    async def _handle_tool_summary(self, response: ToolCallSummaryMessage) -> None:
+        logger.debug(f"Ignoring tool call summary message: {response.content}")
+
+    async def _handle_stream_chunk(
+        self, response: ModelClientStreamingChunkEvent
+    ) -> None:
+        await self._message_callback(
+            response.content, agent=response.source, complete=False
         )
-        self._cancelation_token = None
-        logger.info(f"result: {result.stop_reason}")
+
+    async def _handle_text_message(
+        self, response: TextMessage, oneshot: bool
+    ) -> Optional[TaskResult]:
+        if response.source == "user":
+            # This is presumably just an echo of the user’s prompt
+            return
+
+        logger.info(f"TextMessage from {response.source}: {response.content}")
+
+        # only show the message if we're not streaming, otherwise the streaming
+        # will handle it
+        if not self._stream_tokens:
+            await self._message_callback(
+                response.content, agent=response.source, complete=True
+            )
+
+        if oneshot:
+            # Cleanly terminate the conversation
+            self.terminator.set()
+            return TaskResult(messages=[response], stop_reason="oneshot")
+
+    async def _handle_multi_modal(self, response: MultiModalMessage) -> None:
+        await self._message_callback(
+            f"MM:{response.content}", agent=response.source, complete=True
+        )
+
+    async def _handle_tool_call_request(self, response: ToolCallRequestEvent) -> None:
+        tool_message = "calling tool\n"
+        for tool in response.content:
+            tool_message += f"{tool.name} with arguments:\n{tool.arguments}\n"
+        tool_message += "..."
+        await self._message_callback(tool_message, agent=response.source)
+
+    async def _handle_tool_call_execution(
+        self, response: ToolCallExecutionEvent
+    ) -> None:
+        logger.info(f"Tool call result: {response.content}")
+        await self._message_callback("done", agent=response.source, complete=True)
+
+    async def _handle_user_input_request(
+        self, response: UserInputRequestedEvent
+    ) -> None:
+        logger.info(f"UserInputRequestedEvent: {response.content}")
+        await self._message_callback(
+            response.content, agent=response.source, complete=True
+        )
 
 
 class LLMTools:

@@ -427,6 +427,11 @@ class WebChatApp:
         self.log_level = logging.DEBUG if args.verbose else logging.INFO
         self.log_config.add_console_filter("mchat", self.log_level)
         self.log_config.add_file_filter("mchat", self.log_level)
+        # print all loggers
+        # for logger_name in logging.root.manager.loggerDict:
+        #     logger.debug(f"Logger: {logger_name}")
+        logging.getLogger("requests").setLevel(logging.DEBUG)
+        # self.log_config.add_file_filter("requests", logging.DEBUG)
 
         # Initialize agents and models
 
