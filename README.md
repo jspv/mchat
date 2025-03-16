@@ -13,14 +13,13 @@ maintaining it.
 
 All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you will need to disable the Dall-E support if you don't also have an OpenAI API key.
 
-## Screenshots (OLD - TUI)
+## Screenshots 
 
-![Screenshot1](mchat/tui/screenshot1.png)
+![Screenshot1](screenshot1.png)
 
-*New* - Dall-E support added using the `dall-e` keyword, and an 'image composer' persona to help create prompts.
+![Screenshot2](screenshot2.png)
 
-
-![Screenshot2](mchat/tui/screenshot2.png)
+![Screenshot3](screenshot3.png)
 
 ## TODO
 - [x] Copy text to past buffer when clicking on the response
@@ -33,13 +32,16 @@ All that is needed is an OpenAI API key.  Azure OpenAI will also work, but you w
 - [ ] Swarm multi-agent support
 - [x] Selector multi-agent support
 - [x] Cancellation Buttons to stop running team
+- [ ] Smarter handling of user_proxy_agent
+- [ ] Nice display for 'thought' messages for reasoning models
+- [ ] AWS Bedrock support
   
 
 ## Table of Contents
 - [mchat](#mchat)
   - [Description (OLD)](#description-old)
   - [Description (NEW)](#description-new)
-  - [Screenshots (OLD - TUI)](#screenshots-old---tui)
+  - [Screenshots](#screenshots)
   - [TODO](#todo)
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
