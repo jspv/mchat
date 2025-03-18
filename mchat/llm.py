@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass, fields
 from functools import reduce
 from typing import (
+    AsyncGenerator,
     AsyncIterable,
     Callable,
     Dict,
@@ -18,7 +19,11 @@ from typing import (
 
 import yaml
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.base import TaskResult, TerminatedException, TerminationCondition
+from autogen_agentchat.base import (
+    TaskResult,
+    TerminatedException,
+    TerminationCondition,
+)
 from autogen_agentchat.conditions import (
     ExternalTermination,
     MaxMessageTermination,
@@ -61,6 +66,7 @@ from pydantic.networks import HttpUrl
 from config import settings
 
 from .azure_auth import AzureADTokenProvider
+from .terminator import TerminatorAgent
 from .tool_utils import BaseTool
 
 requests_log = logging.getLogger("requests.packages.urllib3")
@@ -866,7 +872,7 @@ class AutogenManager(object):
                 )
             self.terminator = ExternalTermination()  # for custom terminations
             terminators.append(self.terminator)
-            terminators.append(IsCompleteTermination())
+            terminators.append(TextMentionTermination("ΩΩ"))
             termination = reduce(lambda x, y: x | y, terminators)
 
             # new - defaulting oneshot to false
@@ -878,8 +884,34 @@ class AutogenManager(object):
             #     True if "oneshot" not in agent_data else agent_data["oneshot"]
             # )
 
-            self.agent_team = RoundRobinGroupChat(
-                [self.agent], termination_condition=termination
+            terminator_description = (
+                "This agent ends the conversation and let's the user know that the "
+                "agent is done. It should be called when the response to the user is "
+                "complete."
+            )
+
+            selector_prompt = (
+                f"Below is a conversation between 'user' and an AI agent named "
+                f"'{agent}'. Your job is to determine if {agent} has completed their "
+                f"response to the most recent user message. IMPORTANT - pay attention "
+                f"to what {agent} has been asked to do by the user. It may involve "
+                f"multiple steps and you need to wait until they are all completed "
+                f"before marking the response as complete. If {agent} has completed "
+                f"their response, reply with 'the_terminator'. If {agent} has not "
+                f"replied yet or has more work to do, reply with '{agent}'. Only reply "
+                f"with 'the_terminator' or '{agent}'. Here is the conversation so far: "
+                f"{{history}}"
+            )
+
+            self.agent_team = SelectorGroupChat(
+                model_client=self.model_client,
+                participants=[
+                    self.agent,
+                    TerminatorAgent(model_client=self.model_client),
+                ],
+                termination_condition=termination,
+                allow_repeated_speaker=True,
+                selector_prompt=selector_prompt,
             )
 
     def _create_team(
