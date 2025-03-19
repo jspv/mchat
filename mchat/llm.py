@@ -51,7 +51,6 @@ from autogen_agentchat.teams import (
 from autogen_core import CancellationToken
 from autogen_core.models import (
     AssistantMessage,
-    ModelFamily,
     SystemMessage,
     UserMessage,
 )
@@ -480,7 +479,7 @@ class IsCompleteTermination(TerminationCondition):
     prompt = """ Take a look at the conversation so far. If the conversation has
     reached a natural conclusion and it is the clear that the agent had completed
     the task and has provided a clear response, return True. Otherwise, return False.
-    ONLY return the word 'True' or 'False'.  Here is the conversation so far: 
+    ONLY return the word 'True' or 'False'.  Here is the conversation so far:
     {conversation}"""
 
     def __init__(self):
@@ -887,10 +886,11 @@ class AutogenManager(object):
             # Testing selector group chat
 
             selector_prompt = (
-                f"Below is a conversation between 'user' and '{agent}'. Look at the last "
-                f"message from {agent} and determine if {agent} still has more work to do. "
-                f"If so, reply with '{agent}', if {agent} is done, reply with 'END'. "
-                f"Here is the conversation history so far: {{history}}"
+                f"Below is a conversation between 'user' and '{agent}'. Look at the "
+                f"last message from {agent} and determine if {agent} still has more "
+                f"work to do to meet user's last request. If so, reply with '{agent}'"
+                f", if {agent} is done or stuck in a loop, reply with 'END'. Here is "
+                "the conversation history so far:\n\n {history}"
             )
 
             selector_model = self.mm.open_model(self.mm.default_chat_model)
@@ -1068,13 +1068,20 @@ class AutogenManager(object):
                     logger.debug("Ignoring None response")
                     continue
 
-                if isinstance(response, ToolCallSummaryMessage):
-                    await self._handle_tool_summary(response)
-                    continue
-
                 if isinstance(response, ModelClientStreamingChunkEvent):
                     await self._handle_stream_chunk(response)
                     continue
+
+                if isinstance(response, MultiModalMessage):
+                    await self._handle_multi_modal(response)
+                    continue
+
+                if isinstance(response, StopMessage):
+                    logger.debug(f"Received StopMessage: {response.content}")
+                    return TaskResult(messages=[], stop_reason="presumed done")
+
+                if isinstance(response, TaskResult):
+                    return response
 
                 if isinstance(response, TextMessage):
                     handled = await self._handle_text_message(response, oneshot=oneshot)
@@ -1082,28 +1089,25 @@ class AutogenManager(object):
                         return handled
                     continue
 
-                if isinstance(response, MultiModalMessage):
-                    await self._handle_multi_modal(response)
-                    continue
-
-                if isinstance(response, ToolCallRequestEvent):
-                    await self._handle_tool_call_request(response)
+                if isinstance(response, ThoughtEvent):
+                    await self._handle_thought_event(response)
                     continue
 
                 if isinstance(response, ToolCallExecutionEvent):
                     await self._handle_tool_call_execution(response)
                     continue
 
+                if isinstance(response, ToolCallRequestEvent):
+                    await self._handle_tool_call_request(response)
+                    continue
+
+                if isinstance(response, ToolCallSummaryMessage):
+                    await self._handle_tool_summary(response)
+                    continue
+
                 if isinstance(response, UserInputRequestedEvent):
                     await self._handle_user_input_request(response)
                     continue
-
-                if isinstance(response, TaskResult):
-                    return response
-
-                if isinstance(response, StopMessage):
-                    logger.info(f"Received StopMessage: {response.content}")
-                    return TaskResult(messages=[], stop_reason="presumed done")
 
                 # Unknown event
                 logger.warning(f"Received unknown response type: {response!r}")
@@ -1120,8 +1124,10 @@ class AutogenManager(object):
 
     # - - Handlers for different response types
 
-    async def _handle_tool_summary(self, response: ToolCallSummaryMessage) -> None:
-        logger.debug(f"Ignoring tool call summary message: {response.content}")
+    async def _handle_multi_modal(self, response: MultiModalMessage) -> None:
+        await self._message_callback(
+            f"MM:{response.content}", agent=response.source, complete=True
+        )
 
     async def _handle_stream_chunk(
         self, response: ModelClientStreamingChunkEvent
@@ -1146,23 +1152,27 @@ class AutogenManager(object):
                 response.content, agent=response.source, complete=True
             )
 
-    async def _handle_multi_modal(self, response: MultiModalMessage) -> None:
+    async def _handle_thought_event(self, response: ThoughtEvent) -> None:
+        logger.debug(f"ThoughtEvent: {response.content}")
         await self._message_callback(
-            f"MM:{response.content}", agent=response.source, complete=True
+            f"*(Thinking: {response.content}) *", agent=response.source, complete=False
         )
 
-    async def _handle_tool_call_request(self, response: ToolCallRequestEvent) -> None:
-        tool_message = "calling tool\n"
-        for tool in response.content:
-            tool_message += f"{tool.name} with arguments:\n{tool.arguments}\n"
-        tool_message += "..."
-        await self._message_callback(tool_message, agent=response.source)
+    async def _handle_tool_summary(self, response: ToolCallSummaryMessage) -> None:
+        logger.debug(f"Ignoring tool call summary message: {response.content}")
 
     async def _handle_tool_call_execution(
         self, response: ToolCallExecutionEvent
     ) -> None:
         logger.info(f"Tool call result: {response.content}")
         await self._message_callback("done", agent=response.source, complete=True)
+
+    async def _handle_tool_call_request(self, response: ToolCallRequestEvent) -> None:
+        tool_message = "\n\ncalling tool"
+        for tool in response.content:
+            tool_message += f"{tool.name} with arguments:\n{tool.arguments}\n"
+        tool_message += "..."
+        await self._message_callback(tool_message, agent=response.source)
 
     async def _handle_user_input_request(
         self, response: UserInputRequestedEvent
