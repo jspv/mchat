@@ -13,19 +13,25 @@ log_config = LoggerConfigurator(
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
-
 logging.getLogger("mchat.mchatweb").setLevel(logging.DEBUG)
 
 app = WebChatApp()
 
-# override other loggers
+# Override other loggers
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 
 if __name__ in {"__main__", "__mp_main__"}:
-    app.run(
-        port=8882,
-        title="MChat - Multi-Model Chat Framework",
-        favicon="static/favicon-32x32.png",
-        dark=True,
-        log_config=log_config,
-    )
+    try:
+        # Run the WebChat application
+        app.run(
+            port=8882,
+            title="MChat - Multi-Model Chat Framework",
+            favicon="static/favicon-32x32.png",
+            dark=True,
+            log_config=log_config,
+        )
+    except Exception as e:
+        logger.critical(f"Critical failure in WebChatApp: {e}", exc_info=True)
+        import sys
+
+        sys.exit(1)  # Exit with error status

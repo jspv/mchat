@@ -870,7 +870,22 @@ class WebChatApp:
                 model = self.mm.default_chat_model
 
         if model not in compatible_models:
-            raise ValueError(f"model '{model}' not compatible with agent '{agent}'")
+            logger.error(
+                f"Model '{model}' not compatible with agent '{agent}' "
+                f"resetting to defaults"
+            )
+            if (
+                agent == self.default_agent
+                and model == self.mm.default_chat_model
+                and self.mm.default_chat_model
+                not in self.mm.get_compatible_models(agent, self.ag.agents)
+            ):
+                logger.critical("Default agent and model are not compatible, exiting")
+                app.shutdown()
+                exit(1)
+
+            model = self.mm.default_chat_model
+            agent = self.default_agent
 
         if temperature is None:
             temperature = self.llm_temperature

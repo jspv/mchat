@@ -1039,15 +1039,31 @@ class AutogenManager(object):
     async def ask(self, task: str) -> TaskResult:
         self._cancelation_token = CancellationToken()
 
-        result: TaskResult = await self._consume_agent_stream(
-            agent_runner=self.agent_team.run_stream,
-            oneshot=self.oneshot,
-            task=task,
-            cancellation_token=self._cancelation_token,
-        )
+        try:
+            result: TaskResult = await self._consume_agent_stream(
+                agent_runner=self.agent_team.run_stream,
+                oneshot=self.oneshot,
+                task=task,
+                cancellation_token=self._cancelation_token,
+            )
+        except Exception as e:
+            logger.error(f"Error in agent stream: {e}")
+            result = TaskResult(messages=["Error in agent stream"], stop_reason="error")
+            await self._message_callback(
+                "Error in response from AI, see debug", flush=True
+            )
 
         self._cancelation_token = None
-        logger.info(f"Final result: {result.stop_reason}")
+        if result.stop_reason.startswith("Exception occurred"):
+            # notifiy the UI that an exception occurred
+            logger.warning(
+                f"Exception occurred talking to the AI: {result.stop_reason}"
+            )
+            await self._message_callback(
+                "Error in response from AI, see debug", flush=True
+            )
+
+        logger.debug(f"Final result: {result.stop_reason}")
         return result
 
     async def _consume_agent_stream(
