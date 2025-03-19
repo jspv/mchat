@@ -7,12 +7,13 @@ import os
 from dataclasses import dataclass, fields
 from functools import reduce
 from typing import (
-    AsyncGenerator,
+    Any,
     AsyncIterable,
     Callable,
     Dict,
     List,
     Literal,
+    Mapping,
     Optional,
     Sequence,
 )
@@ -50,6 +51,7 @@ from autogen_agentchat.teams import (
 from autogen_core import CancellationToken
 from autogen_core.models import (
     AssistantMessage,
+    ModelFamily,
     SystemMessage,
     UserMessage,
 )
@@ -607,11 +609,6 @@ class AutogenManager(object):
         # return self.agent.prompt
         return self._description
 
-    async def get_memory(self) -> str:
-        """Returns the current memory in a recoverable text format"""
-        # save_state is async, so we need to await it
-        return await self.agent.save_state()
-
     @property
     def agents(self) -> Dict:
         """Return the agent structure"""
@@ -727,6 +724,10 @@ class AutogenManager(object):
 
     async def update_memory(self, state: dict) -> None:
         await self.agent.load_state(state)
+
+    async def get_memory(self) -> Mapping[str, Any]:
+        """Returns the current memory in a recoverable text format"""
+        return await self.agent.save_state()
 
     async def new_conversation(
         self,
@@ -872,7 +873,6 @@ class AutogenManager(object):
                 )
             self.terminator = ExternalTermination()  # for custom terminations
             terminators.append(self.terminator)
-            terminators.append(TextMentionTermination("ΩΩ"))
             termination = reduce(lambda x, y: x | y, terminators)
 
             # new - defaulting oneshot to false
@@ -884,30 +884,40 @@ class AutogenManager(object):
             #     True if "oneshot" not in agent_data else agent_data["oneshot"]
             # )
 
-            terminator_description = (
-                "This agent ends the conversation and let's the user know that the "
-                "agent is done. It should be called when the response to the user is "
-                "complete."
-            )
+            # Testing selector group chat
 
             selector_prompt = (
-                f"Below is a conversation between 'user' and an AI agent named "
-                f"'{agent}'. Your job is to determine if {agent} has completed their "
-                f"response to the most recent user message. IMPORTANT - pay attention "
-                f"to what {agent} has been asked to do by the user. It may involve "
-                f"multiple steps and you need to wait until they are all completed "
-                f"before marking the response as complete. If {agent} has completed "
-                f"their response, reply with 'the_terminator'. If {agent} has not "
-                f"replied yet or has more work to do, reply with '{agent}'. Only reply "
-                f"with 'the_terminator' or '{agent}'. Here is the conversation so far: "
-                f"{{history}}"
+                f"Below is a conversation between 'user' and '{agent}'. Look at the last "
+                f"message from {agent} and determine if {agent} still has more work to do. "
+                f"If so, reply with '{agent}', if {agent} is done, reply with 'END'. "
+                f"Here is the conversation history so far: {{history}}"
             )
 
+            selector_model = self.mm.open_model(self.mm.default_chat_model)
+
+            def selector_func(
+                messages: Sequence[AgentEvent | ChatMessage],
+            ) -> str | None:
+                # “synchronous” gating logic
+                last_message = messages[-1]
+                if (
+                    isinstance(last_message, TextMessage)
+                    and last_message.source == "user"
+                ):
+                    return agent
+                if isinstance(last_message, ToolCallSummaryMessage) or isinstance(
+                    last_message, ToolCallExecutionEvent
+                ):
+                    return agent
+                else:
+                    return None
+
             self.agent_team = SelectorGroupChat(
-                model_client=self.model_client,
+                model_client=selector_model,
+                selector_func=selector_func,
                 participants=[
                     self.agent,
-                    TerminatorAgent(model_client=self.model_client),
+                    TerminatorAgent(name="END", model_client=selector_model),
                 ],
                 termination_condition=termination,
                 allow_repeated_speaker=True,
@@ -1091,6 +1101,10 @@ class AutogenManager(object):
                 if isinstance(response, TaskResult):
                     return response
 
+                if isinstance(response, StopMessage):
+                    logger.info(f"Received StopMessage: {response.content}")
+                    return TaskResult(messages=[], stop_reason="presumed done")
+
                 # Unknown event
                 logger.warning(f"Received unknown response type: {response!r}")
                 await self._message_callback("<unknown>", flush=True)
@@ -1131,11 +1145,6 @@ class AutogenManager(object):
             await self._message_callback(
                 response.content, agent=response.source, complete=True
             )
-
-        if oneshot:
-            # Cleanly terminate the conversation
-            self.terminator.set()
-            return TaskResult(messages=[response], stop_reason="oneshot")
 
     async def _handle_multi_modal(self, response: MultiModalMessage) -> None:
         await self._message_callback(

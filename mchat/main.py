@@ -23,7 +23,7 @@ logging.getLogger("watchfiles").setLevel(logging.WARNING)
 
 if __name__ in {"__main__", "__mp_main__"}:
     app.run(
-        port=8881,
+        port=8882,
         title="MChat - Multi-Model Chat Framework",
         favicon="static/favicon-32x32.png",
         dark=True,
