@@ -49,6 +49,7 @@ from autogen_agentchat.teams import (
     SelectorGroupChat,
 )
 from autogen_core import CancellationToken
+from autogen_core.model_context import UnboundedChatCompletionContext
 from autogen_core.models import (
     AssistantMessage,
     SystemMessage,
@@ -338,9 +339,9 @@ class ModelManager:
         if "tools" in agents[agent]:
             filter["_tool_support"] = [True]
 
-        # check if the agent needs system messages
-        if "prompt" in agents[agent] and agents[agent]["prompt"] != "":
-            filter["_system_prompt_support"] = [True]
+        # # check if the agent needs system messages
+        # if "prompt" in agents[agent] and agents[agent]["prompt"] != "":
+        #     filter["_system_prompt_support"] = [True]
 
         return self.filter_models(filter)
 
@@ -803,11 +804,34 @@ class AutogenManager(object):
                     if tool in self.tools
                 ]
 
-            # Don't use system messages if not supported
+            # Build the model_context
+            model_context = UnboundedChatCompletionContext()
+
+            # system message if supported
             if self.mm.get_system_prompt_support(model_id):
                 system_message = self._prompt
             else:
                 system_message = None
+                await model_context.add_message(
+                    UserMessage(content=self._prompt, source="user")
+                )
+
+            # Load Extra multi-shot messages if they exist
+            if "extra_context" not in self._agents[agent]:
+                self._agents[agent]["extra_context"] = []
+            for extra in self._agents[agent]["extra_context"]:
+                if extra[0] == "ai":
+                    await model_context.add_message(
+                        AssistantMessage(content=extra[1], source=agent)
+                    )
+                elif extra[0] == "human":
+                    await model_context.add_message(
+                        UserMessage(content=extra[1], source="user")
+                    )
+                elif extra[0] == "system":
+                    raise ValueError(f"system message not implemented: {extra[0]}")
+                else:
+                    raise ValueError(f"Unknown extra context type {extra[0]}")
 
             # build the agent
             if "type" in agent_data and agent_data["type"] == "autogen-agent":
@@ -829,27 +853,14 @@ class AutogenManager(object):
                     name=agent,
                     model_client=self.model_client,
                     tools=tools,
+                    model_context=model_context,
                     system_message=system_message,
                     model_client_stream=True,
                     reflect_on_tool_use=True,
                 )
 
-            # Load Extra system messages if they exist
-            if "extra_context" not in self._agents[agent]:
-                self._agents[agent]["extra_context"] = []
-            for extra in self._agents[agent]["extra_context"]:
-                if extra[0] == "ai":
-                    await self.agent._model_context.add_message(
-                        AssistantMessage(content=extra[1], source=agent)
-                    )
-                elif extra[0] == "human":
-                    await self.agent._model_context.add_message(
-                        UserMessage(content=extra[1], source="user")
-                    )
-                elif extra[0] == "system":
-                    raise ValueError(f"system message not implemented: {extra[0]}")
-                else:
-                    raise ValueError(f"Unknown extra context type {extra[0]}")
+                messages = await self.agent._model_context.get_messages()
+                logger.debug(f"messages: {messages}")
 
             # Set streaming to the current preference (if supported)
 
@@ -887,10 +898,10 @@ class AutogenManager(object):
 
             selector_prompt = (
                 f"Below is a conversation between 'user' and '{agent}'. Look at the "
-                f"last message from {agent} and determine if {agent} still has more "
-                f"work to do to meet user's last request. If so, reply with '{agent}'"
-                f", if {agent} is done or stuck in a loop, reply with 'END'. Here is "
-                "the conversation history so far:\n\n {history}"
+                f"last message from {agent} and determine if {agent} is clearly still "
+                f"working on user's request. If so, reply with '{agent}'."
+                f"If {agent} is likely done or stuck in a loop, reply with 'END'. Here "
+                "is the conversation history so far:\n\n {history}"
             )
 
             selector_model = self.mm.open_model(self.mm.default_chat_model)

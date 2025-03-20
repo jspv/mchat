@@ -898,7 +898,7 @@ class WebChatApp:
                 agent=agent, model_id=model, temperature=temperature
             )
         except Exception as e:
-            logger.critical(f"Error setting agent and model: {e}")
+            logger.critical(f"Error setting agent and model: {e}", exc_info=True)
             ui.notify(f"Error setting agent and model: {e}", type="warning")
             return
 
