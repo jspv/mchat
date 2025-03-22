@@ -8,28 +8,38 @@ from mchat.mchatweb import WebChatApp
 log_config: LoggerConfigurator | None = None
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
-def setup_logging(verbose: bool = False) -> LoggerConfigurator:
+def setup_logging(verbosity: int) -> LoggerConfigurator:
     global log_config
     if log_config is not None:
         return log_config
 
+    # Default to WARNING for both file and console logging
+    console_log_level = logging.WARNING
+    file_log_level = logging.WARNING
+    mchat_console_level = logging.WARNING
+
+    # Adjust log levels based on verbosity
+    if verbosity >= 1:
+        mchat_console_level = logging.INFO
+    if verbosity >= 2:
+        mchat_console_level = logging.DEBUG
+    if verbosity >= 3:
+        file_log_level = logging.DEBUG
+
     log_config = LoggerConfigurator(
         log_to_console=True,
         log_to_file=True,
-        file_log_level=logging.WARNING,
-        console_log_level=logging.WARNING,
+        file_log_level=file_log_level,
+        console_log_level=console_log_level,
     )
 
-    log_config.add_console_filter(
-        "mchat", logging.DEBUG if verbose else logging.WARNING
-    )
+    log_config.add_console_filter("mchat", mchat_console_level)
     log_config.add_file_filter("mchat", logging.DEBUG)
+    log_config.add_console_and_file_filters(__name__, logging.DEBUG)
     log_config.add_console_and_file_filters("watchfiles", logging.WARNING)
     log_config.add_console_and_file_filters("mchat.mchatweb", logging.DEBUG)
-    # log_config.add_console_and_file_filters("autogen_agentchat", logging.DEBUG)
 
     return log_config
 
@@ -37,16 +47,29 @@ def setup_logging(verbose: bool = False) -> LoggerConfigurator:
 def main():
     parser = argparse.ArgumentParser(description="Run the MChat web chat app.")
     parser.add_argument(
-        "--port", type=int, default=8882, help="Port to run the web chat app on."
+        "--port", type=int, default=8882, help="Port to run MChat on (default: 8882)."
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose logging."
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help=(
+            "Increase verbosity. Use -v for INFO, -vv for DEBUG, "
+            "-vvv for really extended debugging in debug.log."
+        ),
+    )
+    parser.add_argument(
+        "--reload", action="store_true", help="Enable automatic reload."
     )
 
     args = parser.parse_args()
 
     setup_logging(args.verbose)
-    logger.debug(f"Starting main() with port={args.port}, verbose={args.verbose}")
+    logger.debug(
+        f"Starting main() with port={args.port}, "
+        f"verbose={args.verbose}, reload={args.reload}"
+    )
 
     app = WebChatApp()
     try:
@@ -55,7 +78,8 @@ def main():
             title="MChat - Multi-Model Chat Framework",
             favicon="static/favicon-32x32.png",
             dark=True,
-            log_level=logging.DEBUG if args.verbose else logging.WARNING,
+            log_config=log_config,
+            reload=args.reload,
         )
     except Exception as e:
         logger.critical(f"Critical failure in WebChatApp: {e}", exc_info=True)

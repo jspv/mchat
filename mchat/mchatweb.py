@@ -148,7 +148,9 @@ class WebChatApp:
                     self.log, log_level=self.log_level
                 )
                 logging.getLogger().addHandler(self.ui_loghandler)
-                logger.info("UI Logging Initialized")
+                self.log.push(
+                    f"UI Logging Initialized @ {logging.getLevelName(self.log_level)}"
+                )
 
             def disconnected():
                 # Remove log event handler
@@ -395,8 +397,18 @@ class WebChatApp:
         logger.exception("Unhandled Exception", exc_info=e)
         ui.notify(f"Exception: {e}", type="warning")
 
-    def run(self, log_level=logging.WARNING, **kwargs):
-        self.log_level = log_level
+    def run(self, log_config: LoggerConfigurator | None = None, **kwargs):
+        self.log_config = log_config
+
+        # set ui logging to the "mchat" logger if it exists, otherwise use the console
+        # log level
+        if log_config is not None:
+            self.log_level = log_config.get_console_filters().get(
+                "mchat", log_config.console_log_level
+            )
+        else:
+            self.log_level = logging.WARNING
+
         self._initialize()
         # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
