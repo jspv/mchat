@@ -23,11 +23,14 @@ class SmartReflectorAgent(BaseChatAgent):
 
     terminator_prompt = (
         "Below is a conversation between 'user' and '{agent}'. "
-        "Look at the user's statement and the last message from {agent} and determine "
-        "if {agent} is still working on responding to the user.  Follow these instructions:  "
-        "1) If {agent} is asking a question to user or is asking for input, respond with 'END'"
-        "2) If {agent} is still working on a response and has another step to take, reply with '{agent}"
-        "3) Otherise, reply with 'END'. "
+        "Look at the user's statement and the last message from "
+        "{agent} and determine if {agent} is still working on "
+        "responding to the user. Follow these instructions: "
+        "1) If {agent} is asking a question to user or is asking "
+        "for input, respond with 'END' "
+        "2) If {agent} is still working on a response and has "
+        "another step to take, reply with '{agent}' "
+        "3) Otherwise, reply with 'END'. "
         "Here is the conversation: {history}"
     )
 

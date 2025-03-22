@@ -207,12 +207,12 @@ class LoggerConfigurator:
         self.backup_count = backup_count
 
         # Keep references to the console/file handlers we create
-        self._my_handlers: List[logging.Handler] = []
+        self._my_handlers: list[logging.Handler] = []
 
         # Dictionaries to hold logger-specific overrides
         # e.g. { "my.special.logger": logging.DEBUG }
-        self.console_filters: Dict[str, int] = {}
-        self.file_filters: Dict[str, int] = {}
+        self.console_filters: dict[str, int] = {}
+        self.file_filters: dict[str, int] = {}
 
         self._configure()
 
@@ -344,6 +344,24 @@ class LoggerConfigurator:
             del self.file_filters[logger_name]
             self._configure()
 
-    def get_file_filters(self) -> Dict[str, int]:
+    def get_file_filters(self) -> dict[str, int]:
         """Return current file logger-specific overrides."""
         return dict(self.file_filters)
+
+    def add_console_and_file_filters(
+        self, logger_name: str, level: int = logging.DEBUG
+    ) -> None:
+        """
+        Add or update an override for both console and file output.
+        :param logger_name: The name of the logger to allow at `level`.
+        :param level: The minimum level for that logger (default: DEBUG).
+        """
+        self.add_console_filter(logger_name, level)
+        self.add_file_filter(logger_name, level)
+        self._configure()
+
+    def remove_console_and_file_filters(self, logger_name: str) -> None:
+        """Remove an override filter from both console and file handlers."""
+        self.remove_console_filter(logger_name)
+        self.remove_file_filter(logger_name)
+        self._configure()

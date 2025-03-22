@@ -293,6 +293,8 @@ class WebChatApp:
                                     if self._spinner.is_deleted is False:
                                         self._spinner.delete()
                                     self.ui_is_busy = False
+                                    await asyncio.sleep(0.1)  # give time to reenable
+                                    await input_area.run_method("focus")
 
                             input_area.on(
                                 "keypress.enter",
@@ -393,9 +395,9 @@ class WebChatApp:
         logger.exception("Unhandled Exception", exc_info=e)
         ui.notify(f"Exception: {e}", type="warning")
 
-    def run(self, log_config: LoggerConfigurator = None, **kwargs):
-        self.log_config = log_config
-        self.parse_args_and_initialize()
+    def run(self, log_level=logging.WARNING, **kwargs):
+        self.log_level = log_level
+        self._initialize()
         # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
         logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -417,25 +419,8 @@ class WebChatApp:
         if "complete" in kwargs and kwargs["complete"]:
             await self.end_chat_turn(role="assistant", agent_name=agent_name)
 
-    def parse_args_and_initialize(self):
-        parser = argparse.ArgumentParser()
-        parser.add_argument(
-            "-v", "--verbose", help="Increase verbosity", action="store_true"
-        )
-        args, _ = parser.parse_known_args()
-
-        self.log_level = logging.DEBUG if args.verbose else logging.INFO
-        self.log_config.add_console_filter("mchat", self.log_level)
-        self.log_config.add_file_filter("mchat", self.log_level)
-        # print all loggers
-        # for logger_name in logging.root.manager.loggerDict:
-        #     logger.debug(f"Logger: {logger_name}")
-        logging.getLogger("requests").setLevel(logging.DEBUG)
-        # self.log_config.add_file_filter("requests", logging.DEBUG)
-
-        # Initialize agents and models
-
-        # Get an object to manage the AI models
+    def _initialize(self):
+        # # Get an object to manage the AI models
         try:
             self.mm = ModelManager()
         except RuntimeError as e:
