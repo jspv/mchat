@@ -1,6 +1,5 @@
 import logging
 import logging.handlers
-from typing import Dict, List
 
 from rich.console import Console
 from rich.traceback import Traceback
@@ -147,7 +146,7 @@ class LevelOverrideFilter(logging.Filter):
     starts with one of the override 'prefixes', it uses that override level.
     """
 
-    def __init__(self, default_level: int, overrides: Dict[str, int]):
+    def __init__(self, default_level: int, overrides: dict[str, int]):
         """
         :param default_level: The default logging threshold (e.g. WARNING).
         :param overrides: dict of logger_prefix -> min_level.
@@ -323,7 +322,7 @@ class LoggerConfigurator:
             del self.console_filters[logger_name]
             self._configure()
 
-    def get_console_filters(self) -> Dict[str, int]:
+    def get_console_filters(self) -> dict[str, int]:
         """Return current console logger-specific overrides."""
         return dict(self.console_filters)
 
