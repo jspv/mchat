@@ -9,11 +9,12 @@ from nicegui import app, events, ui
 from pygments.formatters import HtmlFormatter
 
 from config import settings
-from mchat.history import HistoryContainer
-from mchat.llm import AutogenManager, ModelManager
-from mchat.logging_config import LoggerConfigurator
-from mchat.statusbar import StatusContainer
-from mchat.styles import colors as c
+
+from .agent_manager import AutogenManager, ModelManager
+from .history import HistoryContainer
+from .logging_config import LoggerConfigurator
+from .statusbar import StatusContainer
+from .styles import colors as c
 
 logger = logging.getLogger(__name__)
 

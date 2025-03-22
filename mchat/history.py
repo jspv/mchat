@@ -1,20 +1,20 @@
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Callable, List, Optional
 
 import apsw
 from apsw.bestpractice import apply as apply_best_practice
 from apsw.bestpractice import recommended as recommended_practice
 from nicegui import ui
 
-from mchat.conversation import ConversationRecord
-from mchat.llm import LLMTools
-from mchat.styles import colors as c
+from .agent_manager import LLMTools
+from .conversation import ConversationRecord
+from .styles import colors as c
 
 logger = logging.getLogger(__name__)
 
 # Define type alias for Callbacks
-CallbackType = Optional[Callable[..., None]]
+CallbackType = Callable[..., None] | None
 
 
 class DatabaseManager:
@@ -51,7 +51,7 @@ class DatabaseManager:
         except apsw.Error as e:
             logger.error(f"Failed to write conversation to database: {e}")
 
-    def read_conversation(self, conversation_id: str) -> Optional[ConversationRecord]:
+    def read_conversation(self, conversation_id: str) -> ConversationRecord | None:
         """Read a conversation record from the database."""
         query = "SELECT data FROM Conversations WHERE id=?"
         try:
@@ -71,7 +71,7 @@ class DatabaseManager:
         except apsw.Error as e:
             logger.error(f"Failed to delete conversation from the database: {e}")
 
-    def get_all_conversation_ids(self) -> List[str]:
+    def get_all_conversation_ids(self) -> list[str]:
         """Retrieve all conversation IDs from the database."""
         query = "SELECT id FROM Conversations"
         try:
@@ -225,11 +225,11 @@ class HistoryContainer:
         self, new_record_callback: CallbackType, new_label: str, app: object
     ) -> None:
         self.db_manager = DatabaseManager()
-        self.sessions: List[HistorySessionBox] = []
+        self.sessions: list[HistorySessionBox] = []
         self.new_label = new_label
         self.new_record_callback = new_record_callback
         self.app = app
-        self._active_session: Optional[HistorySessionBox] = None
+        self._active_session: HistorySessionBox | None = None
 
         HistorySessionBox.set_callback(self.history_card_clicked_callback)
         # self.connection = self._initialize_db()
@@ -296,7 +296,7 @@ class HistoryContainer:
         return previous_session
 
     def _add_session(
-        self, record: Optional[ConversationRecord] = None, label: str = ""
+        self, record: ConversationRecord | None = None, label: str = ""
     ) -> HistorySessionBox:
         """Add a new session to the HistoryContainer and set it as active."""
         record = record or ConversationRecord()  # Ensure a valid record is used

@@ -53,12 +53,6 @@ from .model_manager import ModelManager
 from .terminator import SmartReflectorAgent
 from .tool_utils import BaseTool
 
-# requests_log = logging.getLogger("requests.packages.urllib3")
-# # requests_log.setLevel(logging.DEBUG)
-# requests_log.setLevel(logging.WARNING)
-# requests_log.propagate = True
-# #http.client.HTTPConnection.debuglevel = 1
-
 logger = logging.getLogger(__name__)
 
 intent_prompt = (
