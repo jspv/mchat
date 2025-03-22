@@ -4,18 +4,12 @@ import importlib
 import json
 import logging
 import os
+from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from functools import reduce
 from typing import (
     Any,
-    AsyncIterable,
-    Callable,
-    Dict,
-    List,
     Literal,
-    Mapping,
-    Optional,
-    Sequence,
 )
 
 import yaml
@@ -28,6 +22,7 @@ from autogen_agentchat.base import (
 from autogen_agentchat.conditions import (
     ExternalTermination,
     MaxMessageTermination,
+    StopMessageTermination,
     TextMentionTermination,
 )
 from autogen_agentchat.messages import (
@@ -68,7 +63,7 @@ from pydantic.networks import HttpUrl
 from config import settings
 
 from .azure_auth import AzureADTokenProvider
-from .terminator import TerminatorAgent
+from .terminator import SmartReflectorAgent
 from .tool_utils import BaseTool
 
 requests_log = logging.getLogger("requests.packages.urllib3")
@@ -226,7 +221,7 @@ class ModelManager:
             # Attempt to access settings
             # self.openai_api_key = settings.openai_api_key
             self.model_configs = settings["models"].to_dict()
-            self.config: Dict[str, ModelConfig] = {}
+            self.config: dict[str, ModelConfig] = {}
 
         except AttributeError as e:
             # Directly missing attribute within Dynaconf
@@ -421,7 +416,7 @@ class DallEAPIWrapper:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         num_images: int = 1,
         size: str = "1024x1024",
         separator: str = "\n",
@@ -492,7 +487,7 @@ class IsCompleteTermination(TerminationCondition):
 
     async def __call__(
         self, messages: Sequence[AgentEvent | ChatMessage]
-    ) -> Optional[StopMessage]:
+    ) -> StopMessage | None:
         if self._is_terminated:
             raise TerminatedException("Termination condition has already been reached")
         system_message = IsCompleteTermination.prompt.format(conversation=messages)
@@ -512,7 +507,7 @@ class IsCompleteTermination(TerminationCondition):
         self._is_terminated = False
 
 
-class AutogenManager(object):
+class AutogenManager:
     # createa a model_manager for use with llmtools and AutogenManager
     ag_mm = ModelManager()
     ag_memory_model = ag_mm.open_model(ag_mm.default_memory_model)
@@ -520,8 +515,8 @@ class AutogenManager(object):
     def __init__(
         self,
         message_callback: Callable | None = None,
-        agents: Dict | None = None,
-        agent_paths: List[str] | None = None,
+        agents: dict | None = None,
+        agent_paths: list[str] | None = None,
         stream_tokens: bool = True,
     ):
         # Ensure that exactly one of agents or agent_paths is provided
@@ -610,12 +605,12 @@ class AutogenManager(object):
         return self._description
 
     @property
-    def agents(self) -> Dict:
+    def agents(self) -> dict:
         """Return the agent structure"""
         return self._agents
 
     @property
-    def chooseable_agents(self) -> List:
+    def chooseable_agents(self) -> list:
         """Return list of agents the UI can choose from"""
         return self._chooseable_agents
 
@@ -668,7 +663,7 @@ class AutogenManager(object):
         else:
             raise ValueError("stream_tokens can only be set if there is an agent")
 
-    def _load_agents(self, paths: List[str]) -> dict:
+    def _load_agents(self, paths: list[str]) -> dict:
         """Read the agent definition files and load the agents"""
         agent_files = []
         # load the agent files
@@ -875,6 +870,9 @@ class AutogenManager(object):
 
             # Build the termination conditions
             terminators = []
+            terminators.append(
+                StopMessageTermination(),
+            )
             max_rounds = agent_data["max_rounds"] if "max_rounds" in agent_data else 5
             terminators.append(MaxMessageTermination(max_rounds))
             if "termination_message" in agent_data:
@@ -889,50 +887,22 @@ class AutogenManager(object):
             self.oneshot = (
                 False if "oneshot" not in agent_data else agent_data["oneshot"]
             )
-            # if there is only one agent, set oneshot to true
-            # self.oneshot = (
-            #     True if "oneshot" not in agent_data else agent_data["oneshot"]
-            # )
 
             # Testing selector group chat
 
-            selector_prompt = (
-                f"Below is a conversation between 'user' and '{agent}'. Look at the "
-                f"last message from {agent} and determine if {agent} is clearly still "
-                f"working on user's request. If so, reply with '{agent}'."
-                f"If {agent} is likely done or stuck in a loop, reply with 'END'. Here "
-                "is the conversation history so far:\n\n {history}"
-            )
-
-            selector_model = self.mm.open_model(self.mm.default_chat_model)
-
-            def selector_func(
-                messages: Sequence[AgentEvent | ChatMessage],
-            ) -> str | None:
-                # “synchronous” gating logic
-                last_message = messages[-1]
-                if (
-                    isinstance(last_message, TextMessage)
-                    and last_message.source == "user"
-                ):
-                    return agent
-                if isinstance(last_message, ToolCallSummaryMessage) or isinstance(
-                    last_message, ToolCallExecutionEvent
-                ):
-                    return agent
-                else:
-                    return None
-
-            self.agent_team = SelectorGroupChat(
-                model_client=selector_model,
-                selector_func=selector_func,
+            logger.debug("creating RR group chat")
+            self.agent_team = RoundRobinGroupChat(
                 participants=[
                     self.agent,
-                    TerminatorAgent(name="END", model_client=selector_model),
+                    SmartReflectorAgent(
+                        model_client=self.mm.open_model(self.mm.default_memory_model),
+                        oneshot=self.oneshot,
+                        name="END",
+                        agent_name=agent,
+                    ),
+                    # StopTerminatorAgent(),
                 ],
                 termination_condition=termination,
-                allow_repeated_speaker=True,
-                selector_prompt=selector_prompt,
             )
 
     def _create_team(
@@ -1165,7 +1135,7 @@ class AutogenManager(object):
 
     async def _handle_text_message(
         self, response: TextMessage, oneshot: bool
-    ) -> Optional[TaskResult]:
+    ) -> TaskResult | None:
         if response.source == "user":
             # This is presumably just an echo of the user’s prompt
             return
@@ -1182,7 +1152,9 @@ class AutogenManager(object):
     async def _handle_thought_event(self, response: ThoughtEvent) -> None:
         logger.debug(f"ThoughtEvent: {response.content}")
         await self._message_callback(
-            f"*(Thinking: {response.content}) *", agent=response.source, complete=False
+            f"\n\n*(Thinking: {response.content})*\n\n",
+            agent=response.source,
+            complete=False,
         )
 
     async def _handle_tool_summary(self, response: ToolCallSummaryMessage) -> None:

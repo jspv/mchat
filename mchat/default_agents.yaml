@@ -19,7 +19,8 @@ default_with_tools:
          (the side opposite the right angle), - \( a \) and \( b \) are the lengths of the other two sides. 
         The theorem states that in a right triangle, the square of the length of the hypotenuse is equal to 
         the sum of the squares of the lengths of the other two sides.
-
+  oneshot: false
+  max_rounds: 10
   tools:
     - google_search
     - generate_image
@@ -47,6 +48,8 @@ default_no_tools:
          (the side opposite the right angle), - \( a \) and \( b \) are the lengths of the other two sides. 
         The theorem states that in a right triangle, the square of the length of the hypotenuse is equal to 
         the sum of the squares of the lengths of the other two sides.
+  oneshot: false
+  max_rounds: 5
 
 financial_expert:
   type: agent
@@ -61,6 +64,7 @@ financial_expert:
   extra_context: []
   tools:
     - google_search
+  oneshot: false
 
 image_composer:
   type: agent
@@ -111,6 +115,7 @@ image_composer:
         warily, the tension in the cage palpable. Their muscles are tensed, their gazes
         locked. The spectators hold their breath, waiting for the first move in this
         unlikely and dramatic cage match.
+  oneshot: true
 
 linux_computer:
   type: agent
@@ -126,11 +131,13 @@ linux_computer:
       - hostname
     - - ai
       - "```shell\nlinux-terminal```"
+  oneshot: true
 
 blank:
   description: A blank agent
   prompt: ""
   extra_context: []
+  oneshot: true
 
 blank_with_tools:
   description: A blank agent who can call tools.
@@ -139,6 +146,7 @@ blank_with_tools:
   tools:
     - google_search
     - generate_image
+  oneshot: false
 
 research_team:
   type: team

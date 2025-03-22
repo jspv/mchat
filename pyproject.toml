@@ -39,7 +39,7 @@ mchat = "python -m mchat.main"
 line-length = 88
 indent-width = 4
 fix = true
-
+target-version = "py310"
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
@@ -81,7 +81,7 @@ fixable = ["ALL"]
 unfixable = []
 
 # [tool.ruff.lint]
-select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20"]
+select = ["E", "F", "W", "B", "Q", "I", "ASYNC", "T20", "UP"]
 # ignore = ["F401", "E501"]
 
 [tool.ruff.lint.flake8-tidy-imports]
