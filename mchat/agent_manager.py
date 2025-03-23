@@ -50,7 +50,7 @@ from autogen_core.tools import FunctionTool
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 
 from .model_manager import ModelManager
-from .terminator import SmartReflectorAgent
+from .terminator import SmartReflectorTermination
 from .tool_utils import BaseTool
 
 logger = logging.getLogger(__name__)
@@ -495,27 +495,28 @@ class AutogenManager:
                 )
             self.terminator = ExternalTermination()  # for custom terminations
             terminators.append(self.terminator)
-            termination = reduce(lambda x, y: x | y, terminators)
 
             # new - defaulting oneshot to false
             self.oneshot = (
                 False if "oneshot" not in agent_data else agent_data["oneshot"]
             )
 
-            # Testing selector group chat
+            # create the group chat
+
+            # Smart terminator to reflect on the conversation if not complete
+            terminators.append(
+                SmartReflectorTermination(
+                    model_client=self.mm.open_model(self.mm.default_memory_model),
+                    oneshot=self.oneshot,
+                    agent_name=agent,
+                )
+            )
 
             logger.debug("creating RR group chat")
+            termination = reduce(lambda x, y: x | y, terminators)
+
             self.agent_team = RoundRobinGroupChat(
-                participants=[
-                    self.agent,
-                    SmartReflectorAgent(
-                        model_client=self.mm.open_model(self.mm.default_memory_model),
-                        oneshot=self.oneshot,
-                        name="END",
-                        agent_name=agent,
-                    ),
-                    # StopTerminatorAgent(),
-                ],
+                participants=[self.agent],
                 termination_condition=termination,
             )
 
