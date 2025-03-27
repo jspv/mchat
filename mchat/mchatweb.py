@@ -13,6 +13,7 @@ from config import settings
 from .agent_manager import AutogenManager, ModelManager
 from .history import HistoryContainer
 from .logging_config import LoggerConfigurator
+from .smart_markdown import SmartMarkdown
 from .statusbar import StatusContainer
 from .styles import colors as c
 
@@ -108,10 +109,13 @@ class ChatTurn:
             self.chat_response_label.text = f"{self.agent}"
             self.chat_response.visible = True
         with self.chat_response_content:
-            ui.markdown(
-                self.response,
-                extras=["fenced-code-blocks", "tables", "code-friendly", "latex"],
-            )
+            # ui.markdown(
+            #     self.response,
+            #     extras=["fenced-code-blocks", "tables", "code-friendly", "latex"],
+            # )
+            # currently recreateting the element each time TODO should
+            # update on new tokens in the same chat vs. recreating
+            SmartMarkdown(self.response)
 
         # force scroll to the bottom
         # TODO: implement a debounce to not call this every chunk
@@ -189,9 +193,9 @@ class WebChatApp:
             )
 
             # Below allows code blocks in markdown to look nice
-            ui.add_head_html(
-                f"<style>{HtmlFormatter(nobackground=False, style='solarized-dark').get_style_defs('.codehilite')}</style>"  # noqa: E501
-            )
+            # ui.add_head_html(
+            #     f"<style>{HtmlFormatter(nobackground=False).get_style_defs('.codehilite')}</style>"  # noqa: E501
+            # )
 
             ui.add_head_html("""
             <style>
