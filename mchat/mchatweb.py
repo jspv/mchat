@@ -89,7 +89,7 @@ class ChatTurn:
                 with ui.row().classes("mt-4 mb-1 justify-end"):
                     ui.label(f"{question}").classes(
                         f"bg-{c.input_d} text-white p-4 dark rounded-3xl text-body1"
-                    )
+                    ).style("white-space: pre-wrap")
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
                 self.chat_response_content = ui.element("div").classes(
