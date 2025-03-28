@@ -13,8 +13,7 @@ class RichFormatter(logging.Formatter):
     """
     A logging formatter that uses Rich to render:
       - Main log lines with bracket markup (if use_color=True).
-      - Rich-styled traceback (only if use_color=True).
-      - Plain-text traceback (no ANSI) if use_color=False.
+      - Rich-styled traceback.
       - Optional stack info appended (stack_info=True).
     """
 
