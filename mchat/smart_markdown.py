@@ -225,7 +225,10 @@ class SmartMarkdown(
                 dimensions = html_table_to_table_dict(
                     md.renderer.render(element.to_tokens(), md.options, {})
                 )
-                ui.table(**dimensions)
+                with ui.element("div").classes("w-min"):
+                    ui.table(**dimensions).classes("m-2 table-auto").props("")
+            else:
+                logger.debug(f"Unknown element type: {element_type}")
 
 
 class SmartCode(
