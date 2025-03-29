@@ -7,8 +7,6 @@ from functools import lru_cache
 from logging import getLogger
 from typing import (
     Any,
-    Self,
-    cast,
 )
 
 from bs4 import BeautifulSoup
@@ -81,7 +79,7 @@ def get_markdown_parser() -> MarkdownIt:
 
 
 def register_codehilite_css(
-    light_style: str = "monokai", dark_style: str = "github-dark"
+    light_style: str = "solarized-light", dark_style: str = "monokai"
 ) -> None:
     """(Re)register the codehilite CSS route with custom styles."""
     # Remove existing route if any
@@ -91,7 +89,7 @@ def register_codehilite_css(
     for route in existing_routes:
         core.app.routes.remove(route)
 
-    # Generate new CSS
+    # Generate new CSS from Pygments for light and dark themes
     light_css = HtmlFormatter(nobackground=True, style=light_style).get_style_defs(
         ".codehilite"
     )
@@ -99,9 +97,19 @@ def register_codehilite_css(
         ".body--dark .codehilite"
     )
 
-    # Register the new route
+    # Custom CSS to ensure linenos inherit from .codehilite
+    lineno_css = """
+    td.linenos, td.linenos .normal, span.linenos, span.linenos.special {
+        opacity: 0.5; /* 50% transparency */
+        padding-right: 10px; /* Add more space between line numbers and code */
+    }
+    """
+
+    # Register the new route with the CSS, ensuring linenos CSS comes last
     core.app.get(CODEHILITE_CSS_URL)(
-        lambda: PlainTextResponse(light_css + dark_css, media_type="text/css")
+        lambda: PlainTextResponse(
+            light_css + dark_css + lineno_css, media_type="text/css"
+        )
     )
 
 
@@ -230,7 +238,8 @@ class SmartCode(
 
         This element displays a code block with syntax highlighting.
 
-        In secure environments (HTTPS or localhost), a copy button is displayed to copy the code to the clipboard.
+        In secure environments (HTTPS or localhost), a copy button is displayed
+        to copy the code to the clipboard.
 
         :param content: code to display
         :param language: language of the code (default: "python")
@@ -255,7 +264,7 @@ class SmartCode(
 
         # Set up the UI components
         with self:
-            self.code = ui.html().classes("overflow-auto")
+            self.code = ui.html().classes("overflow-auto py-2")
             self.copy_button = (
                 ui.button(icon="content_copy", on_click=self.show_checkmark)
                 .props("round flat size=sm")

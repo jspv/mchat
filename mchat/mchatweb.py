@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Literal
 
 from nicegui import app, events, ui
-from pygments.formatters import HtmlFormatter
 
 from config import settings
 
@@ -88,7 +87,8 @@ class ChatTurn:
             if question and role == "user":
                 with ui.row().classes("mt-4 mb-1 justify-end"):
                     ui.label(f"{question}").classes(
-                        f"bg-{c.input_d} text-white p-4 dark rounded-3xl text-body1"
+                        f"bg-{c.secondary} bg-opacity-50 dark:bg-{c.input_d} text-{c.input_d}"
+                        f"dark:text-{c.input_l} p-4 rounded-3xl text-body1"
                     ).style("white-space: pre-wrap")
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
@@ -109,10 +109,6 @@ class ChatTurn:
             self.chat_response_label.text = f"{self.agent}"
             self.chat_response.visible = True
         with self.chat_response_content:
-            # ui.markdown(
-            #     self.response,
-            #     extras=["fenced-code-blocks", "tables", "code-friendly", "latex"],
-            # )
             # currently recreateting the element each time TODO should
             # update on new tokens in the same chat vs. recreating
             SmartMarkdown(self.response)
@@ -192,11 +188,6 @@ class WebChatApp:
                 historycard="#2e2e2e",
             )
 
-            # Below allows code blocks in markdown to look nice
-            # ui.add_head_html(
-            #     f"<style>{HtmlFormatter(nobackground=False).get_style_defs('.codehilite')}</style>"  # noqa: E501
-            # )
-
             ui.add_head_html("""
             <style>
                 .q-btn:disabled {
@@ -261,17 +252,20 @@ class WebChatApp:
                 f"bg-{c.lightpage} dark:bg-{c.darkpage} p-2 justify-center pt-0"
             ):
                 with ui.card().classes(
-                    "bg-accent rounded-3xl p-3 px-4 w-4/5 min-h-20 flex flex-col"
+                    f"rounded-3xl p-3 px-4 w-4/5 min-h-20 flex flex-col "
+                    f"bg-{c.input_l} dark:bg-{c.input_d}"
                 ) as card:
                     with ui.column().classes(
-                        f"bg-{c.input_d} dark:bg-{c.input_d} gap-0 w-full"
+                        f"bg-{c.input_l} dark:bg-{c.input_d} gap-0 w-full"
                     ):
                         with (
                             ui.textarea(placeholder="How can I help?")
                             .props(
-                                f"dark autogrow borderless standout='bg-{c.input_d}' "
-                                f"input-class='max-h-40 bg-{c.input_d} "
-                                f"dark:bg-{c.input_d} text-white' dense autofocus"
+                                f"autogrow borderless "
+                                f"standout='bg-{c.input_l} dark:bg-{c.input_d}' "
+                                f"input-class='max-h-40 bg-{c.input_l} "
+                                f"dark:bg-{c.input_d} text-{c.input_d} "
+                                f"dark:text-{c.input_l}' dense autofocus"
                             )
                             .classes("w-full self-center text-body1")
                             .bind_enabled_from(

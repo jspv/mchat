@@ -8,7 +8,7 @@ from datetime import datetime
 
 
 @dataclass
-class Turn(object):
+class Turn:
     """Object to store a single back/forth turn in a conversation"""
 
     agent: str
@@ -39,7 +39,7 @@ class Turn(object):
 
 # object to store conversation details
 @dataclass
-class ConversationRecord(object):
+class ConversationRecord:
     """Object to store a conversation"""
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))

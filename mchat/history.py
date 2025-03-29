@@ -103,7 +103,7 @@ class HistorySessionBox:
         )
 
         with ui.card().classes(
-            f"w-full bg-{c.historycard_l} dark:bg-{c.historycard_d} p-2"
+            f"w-full bg-{c.historycard_l} dark:bg-{c.historycard_d} p-2 my-1"
         ) as self.box:
             with ui.row(align_items="center").classes("w-full justify-end"):
                 self.boxlabel = ui.label(session_box_label).classes(
@@ -113,7 +113,8 @@ class HistorySessionBox:
 
                 self.copy_button = (
                     ui.button(icon="content_copy")
-                    .classes(f"bg-{c.secondary} w-8")
+                    .props("round size=sm")
+                    .classes(f"bg-{c.secondary} w-8 opacity-60 hover:opacity-80")
                     .on(
                         "click.stop",
                         lambda: self._call_callback(
@@ -123,8 +124,8 @@ class HistorySessionBox:
                 )
                 self.delete_button = (
                     ui.button(icon="delete")
-                    .props("color=red")
-                    .classes(f"bg-{c.secondary} w-8")
+                    .props("color=red round size=sm")
+                    .classes(f"bg-{c.secondary} w-8 opacity-60 hover:opacity-80")
                     .on(
                         "click.stop",
                         lambda: self._call_callback(
@@ -234,31 +235,39 @@ class HistoryContainer:
         HistorySessionBox.set_callback(self.history_card_clicked_callback)
         # self.connection = self._initialize_db()
 
-        with ui.left_drawer(
-            top_corner=True, bottom_corner=True
-        ) as self.history_container:
+        ui.add_css("""
+            .nicegui-scroll-area .q-scrollarea__content {
+                   padding-left:0;
+            }
+        """)
+
+        with ui.left_drawer(fixed=True, top_corner=True, bottom_corner=True):
             with ui.row().classes("w-full justify-between gap-2"):
                 ui.label("History").style("font-size: 1.5em; font-weight: bold")
                 ui.button(icon="add").props("outline round dense").on(
                     "click", self.new_session
                 )
 
-            conversation_ids = self.db_manager.get_all_conversation_ids()
+            with ui.scroll_area().classes("h-full p-0"):
+                with ui.column().classes(
+                    "w-full gap-0 m-0 p-0"
+                ) as self.history_container:
+                    conversation_ids = self.db_manager.get_all_conversation_ids()
 
-            records = [
-                self.db_manager.read_conversation(conversation_id)
-                for conversation_id in conversation_ids
-            ]
+                    records = [
+                        self.db_manager.read_conversation(conversation_id)
+                        for conversation_id in conversation_ids
+                    ]
 
-            # Add previous sessions
-            for record in sorted(records, key=lambda x: x.created):
-                self._add_previous_session(record)
+                    # Add previous sessions
+                    for record in sorted(records, key=lambda x: x.created):
+                        self._add_previous_session(record)
 
-            # Add a new session and make it active
-            self.active_session = HistorySessionBox(
-                record=ConversationRecord(), new_label=self.new_label
-            )
-            self.sessions.append(self.active_session)
+                    # Add a new session and make it active
+                    self.active_session = HistorySessionBox(
+                        record=ConversationRecord(), new_label=self.new_label
+                    )
+                    self.sessions.append(self.active_session)
 
     @property
     def active_record(self) -> ConversationRecord:
