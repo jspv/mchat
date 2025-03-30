@@ -34,6 +34,25 @@ logger = getLogger(__name__)
 CODEHILITE_CSS_URL = f"/_nicegui/{__version__}/codehilite.css"
 SMART_CODE_JS_PATH = "/_nicegui/components/_code.js"
 
+smarthighlight_js = """
+.nicegui-smartcode {
+  position: relative;
+  background-color: rgba(127, 159, 191, 0.1);
+  border: 1pt solid rgba(127, 159, 191, 0.15);
+  box-shadow: 0 0 0.5em rgba(127, 159, 191, 0.05);
+  border-radius: 0.25rem;
+}
+.nicegui-smartcode .codehilite {
+  /*padding: 0 0.5rem;*/
+}
+
+.nicegui-smartcode td {
+    padding: 0;
+    border: 0
+
+}
+"""
+
 
 class MyMarkdown(MarkdownIt):
     def __init__(self, **kwargs):
@@ -214,25 +233,26 @@ class SmartMarkdown(
                     (md.renderer.render(node.to_tokens(), md.options, {}), "html")
                 )
         # render the map
-        for element, element_type in map:
-            if element_type == "html":
-                ui.html(element).classes("list-decimal")
-            elif element_type == "fence":
-                SmartCode(element.content, language=element.info)
-            elif element_type == "mermaid":
-                ui.mermaid(element.content)
-            elif element_type == "table":
-                dimensions = html_table_to_table_dict(
-                    md.renderer.render(element.to_tokens(), md.options, {})
-                )
-                with ui.element("div").classes("w-min"):
-                    ui.table(**dimensions).classes("m-2 table-auto").props("")
-            else:
-                logger.debug(f"Unknown element type: {element_type}")
+        with self:
+            for element, element_type in map:
+                if element_type == "html":
+                    ui.html(element).classes("list-decimal")
+                elif element_type == "fence":
+                    SmartCode(element.content, language=element.info)
+                elif element_type == "mermaid":
+                    ui.mermaid(element.content)
+                elif element_type == "table":
+                    dimensions = html_table_to_table_dict(
+                        md.renderer.render(element.to_tokens(), md.options, {})
+                    )
+                    with ui.element("div").classes("w-min"):
+                        ui.table(**dimensions).classes("m-2 table-auto").props("")
+                else:
+                    logger.debug(f"Unknown element type: {element_type}")
 
 
 class SmartCode(
-    ContentElement, component="smart_markdown.js", default_classes="nicegui-code"
+    ContentElement, component="smart_markdown.js", default_classes="nicegui-smartcode"
 ):  # todo fsm
     def __init__(
         self, content: str = "", *, language: str | None = "python", **kwargs: Any
@@ -252,6 +272,7 @@ class SmartCode(
         self.content = content
         self.language = language
         self.code = None  # Placeholder for the code element
+        ui.add_css(smarthighlight_js)
         super().__init__(content=content, **kwargs)
 
         try:
@@ -267,7 +288,7 @@ class SmartCode(
 
         # Set up the UI components
         with self:
-            self.code = ui.html().classes("overflow-auto py-2")
+            self.code = ui.html().classes("overflow-auto")
             self.copy_button = (
                 ui.button(icon="content_copy", on_click=self.show_checkmark)
                 .props("round flat size=sm")
