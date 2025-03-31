@@ -233,8 +233,8 @@ class HistoryContainer:
         self._active_session: HistorySessionBox | None = None
 
         HistorySessionBox.set_callback(self.history_card_clicked_callback)
-        # self.connection = self._initialize_db()
 
+        # Set padding for the scrollarea, not exposed in the API
         ui.add_css("""
             .nicegui-scroll-area .q-scrollarea__content {
                    padding-left:0;

@@ -412,6 +412,7 @@ class AutogenManager:
                     for tool in agent_data["tools"]
                     if tool in self.tools
                 ]
+                logger.debug(f"Loading tools {agent_data['tools']} into agent {agent}")
 
             # Build the model_context
             model_context = UnboundedChatCompletionContext()
@@ -567,6 +568,7 @@ class AutogenManager:
                     # load the tools
                     tools = []
                     for tool in subagent_data["tools"]:
+                        logger.debug(f"Loading tool {tool} into agent {agent}")
                         tools.append(self.tools[tool])
 
                 agents.append(
