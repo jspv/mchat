@@ -30,8 +30,6 @@ def setup_logging(verbosity: int) -> LoggerConfigurator:
     if verbosity >= 4:
         file_log_level = logging.TRACE
 
-    print(f"file_log_level={file_log_level}, console_log_level={console_log_level}, ")
-
     log_config = LoggerConfigurator(
         log_to_console=True,
         log_to_file=True,
@@ -41,8 +39,8 @@ def setup_logging(verbosity: int) -> LoggerConfigurator:
 
     # customize the log levels for specific modules
     log_config.add_console_filter("mchat", mchat_console_level)
-    log_config.add_file_filter("mchat", logging.TRACE)
-    log_config.add_console_and_file_filters(__name__, logging.TRACE)
+    log_config.add_file_filter("mchat", logging.DEBUG)
+    log_config.add_console_and_file_filters(__name__, logging.DEBUG)
     log_config.add_console_and_file_filters("watchfiles", logging.WARNING)
     log_config.add_console_and_file_filters("mchat.mchatweb", logging.DEBUG)
     log_config.add_console_and_file_filters("markdown_it.rules_block", logging.WARNING)
