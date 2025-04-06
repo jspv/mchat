@@ -8,22 +8,17 @@ export default {
         const prefix = window.path_prefix ?? '/_nicegui/';
         const css = this.codehilite_css_url;
 
-        console.group('[NiceGUI] <NewCode> Resource Load Debug');
-
         if (!css) {
-            console.warn('[NewCode] codehilite_css_url prop is missing or empty');
-            console.groupEnd();
+            console.warn('[smart_code] codehilite_css_url prop is missing or empty');
             return;
         }
 
         const fullUrl = prefix + css;
-        console.log('[NewCode] Attempting to load:', fullUrl);
 
         try {
             await loadResource(fullUrl);
-            console.log('[NewCode] Resource loaded successfully:', fullUrl);
         } catch (err) {
-            console.error('[NewCode] Failed to load resource:', fullUrl);
+            console.error('[smart_code] Failed to load resource:', fullUrl);
             console.error(err);
         }
 

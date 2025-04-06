@@ -1,12 +1,95 @@
+import asyncio
+import functools
+import inspect
+import itertools
 import logging
 import logging.handlers
+import time
 
 from rich.console import Console
 from rich.traceback import Traceback
 
+TRACE_LEVEL_NUM = 5
 
-def make_console(use_color: bool) -> Console:
-    return Console(color_system="auto" if use_color else None, stderr=True)
+
+# A quick placeholder for the trace_logging function, any module that include this
+# one will get the tracelogging installed
+def trace_logging(level: int = TRACE_LEVEL_NUM) -> None:
+    """Add a TRACE level to the logging module."""
+    if hasattr(logging.Logger, "trace"):
+        return  # Already set up
+    logging.addLevelName(level, "TRACE")
+    logging.TRACE = level
+
+    def trace(self, message, *args, **kwargs):
+        if self.isEnabledFor(level):
+            self._log(level, message, args, **kwargs)
+
+    logging.Logger.trace = trace
+
+
+trace_logging(level=TRACE_LEVEL_NUM)
+
+
+# Global call ID generator for async functions (optional if using task ID)
+_async_call_counter = itertools.count()
+
+
+def trace(logger, *, show_duration: bool = False):
+    """
+    Decorator factory for trace logging.
+    :param logger: The logger instance to use.
+    :param show_duration: Whether to include execution time in the log.
+    """
+
+    def decorator(func):
+        is_async = inspect.iscoroutinefunction(func)
+
+        if is_async:
+
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                call_id = next(_async_call_counter)
+                task = asyncio.current_task()
+                task_name = task.get_name() if task else "unnamed"
+                task_id = id(task) if task else "<no-task>"
+                start = time.perf_counter() if show_duration else None
+
+                logger.trace(
+                    f"[#{call_id}|{task_name}@{task_id}] Calling {func.__name__} (async) with args={args}, kwargs={kwargs}"
+                )
+                result = await func(*args, **kwargs)
+                duration = (
+                    f" in {time.perf_counter() - start:.3f}s" if show_duration else ""
+                )
+                logger.trace(
+                    f"[#{call_id}|{task_name}@{task_id}] {func.__name__} (async) returned: {result}{duration}"
+                )
+                return result
+
+            return async_wrapper
+
+        else:
+
+            @functools.wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                call_id = next(_async_call_counter)
+                start = time.perf_counter() if show_duration else None
+                logger.trace(
+                    f"[#{call_id}] Calling {func.__name__} (sync) with args={args}, kwargs={kwargs}"
+                )
+                result = func(*args, **kwargs)
+                duration = (
+                    f" in {time.perf_counter() - start:.3f}s" if show_duration else ""
+                )
+                logger.trace(
+                    f"[#{call_id}] {func.__name__} (sync) returned: {result}{duration}"
+                )
+                return result
+
+            return sync_wrapper
+
+    return decorator
 
 
 class RichFormatter(logging.Formatter):
@@ -20,7 +103,7 @@ class RichFormatter(logging.Formatter):
     def __init__(self, use_color=True, datefmt="%Y-%m-%d %H:%M:%S", **kwargs):
         super().__init__(datefmt=datefmt, **kwargs)
         self.use_color = use_color
-        self.console = make_console(use_color)
+        self.console = self.make_console(use_color)
         self.standard_attrs = {
             "name",
             "msg",
@@ -43,6 +126,9 @@ class RichFormatter(logging.Formatter):
             "processName",
             "process",
         }
+
+    def make_console(self, use_color: bool) -> Console:
+        return Console(color_system="auto" if use_color else None, stderr=True)
 
     def format(self, record: logging.LogRecord) -> str:
         """
@@ -132,11 +218,6 @@ class RichFormatter(logging.Formatter):
         except Exception as e:
             # Fallback if something goes awry
             return f"Formatting error: {e}"
-
-
-def create_rich_formatter(use_color: bool = True) -> logging.Formatter:
-    """Factory to create a RichFormatter with optional color."""
-    return RichFormatter(use_color=use_color)
 
 
 class LevelOverrideFilter(logging.Filter):
@@ -236,6 +317,10 @@ class LoggerConfigurator:
         self._file_log_level = level
         self._configure()
 
+    def _create_rich_formatter(self, use_color: bool = True) -> logging.Formatter:
+        """Factory to create a RichFormatter with optional color."""
+        return RichFormatter(use_color=use_color)
+
     def _configure(self) -> None:
         """
         Configures the standard Python logging system
@@ -256,7 +341,7 @@ class LoggerConfigurator:
 
         # Build console/file handlers if requested
         if self.log_to_console:
-            console_formatter = create_rich_formatter(use_color=True)
+            console_formatter = self._create_rich_formatter(use_color=True)
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(console_formatter)
             # Set the handler's level to NOTSET so that filter logic decides:
@@ -272,7 +357,7 @@ class LoggerConfigurator:
             self._my_handlers.append(console_handler)
 
         if self.log_to_file:
-            file_formatter = create_rich_formatter(use_color=False)
+            file_formatter = self._create_rich_formatter(use_color=False)
             file_handler = logging.handlers.RotatingFileHandler(
                 self.file_path,
                 maxBytes=self.max_bytes,
