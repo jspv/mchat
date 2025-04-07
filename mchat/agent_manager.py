@@ -49,6 +49,7 @@ from autogen_core.models import (
 from autogen_core.tools import FunctionTool
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
 
+from .logging_config import trace  # noqa: F401
 from .model_manager import ModelManager
 from .terminator import SmartReflectorTermination
 from .tool_utils import BaseTool
@@ -469,7 +470,7 @@ class AutogenManager:
                 )
 
                 messages = await self.agent._model_context.get_messages()
-                logger.debug(f"messages: {messages}")
+                logger.trace(f"messages: {messages}")
 
             # Set streaming to the current preference (if supported)
 
@@ -755,7 +756,7 @@ class AutogenManager:
             # This is presumably just an echo of the user’s prompt
             return
 
-        logger.info(f"TextMessage from {response.source}: {response.content}")
+        logger.trace(f"TextMessage from {response.source}: {response.content}")
 
         # only show the message if we're not streaming, otherwise the streaming
         # will handle it

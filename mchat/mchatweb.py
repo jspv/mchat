@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from nicegui import app, events, ui
+from nicegui import app, ui
 
 from config import settings
 
@@ -89,8 +89,9 @@ class ChatTurn:
             if question and role == "user":
                 with ui.row().classes("mt-4 mb-1 justify-end"):
                     ui.label(f"{question}").classes(
-                        f"bg-{c.secondary} bg-opacity-50 dark:bg-{c.input_d} text-{c.input_d}"
-                        f"dark:text-{c.input_l} p-4 rounded-3xl text-body1"
+                        f"bg-{c.secondary} bg-opacity-50 dark:bg-{c.input_d} "
+                        f"text-{c.input_d} dark:text-{c.input_l} p-4 rounded-3xl "
+                        f"text-body1"
                     ).style("white-space: pre-wrap")
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
@@ -457,6 +458,10 @@ class WebChatApp:
             loop.slow_callback_duration = 0.05
 
         # app.on_startup(async_debug)
+
+        # set reconnect_timeout if not in kwargs (default is 3 seconds)
+        if "reconnect_timeout" not in kwargs:
+            kwargs["reconnect_timeout"] = 15
 
         logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         ui.run(**kwargs)

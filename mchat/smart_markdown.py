@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import textwrap
 import time
 from functools import lru_cache
 from logging import getLogger
@@ -10,19 +11,12 @@ from typing import (
 
 from bs4 import BeautifulSoup
 from fastapi.responses import PlainTextResponse
-
-# import markdown2
 from markdown_it import MarkdownIt
-from markdown_it.renderer import RendererHTML
-from markdown_it.token import Token
 from markdown_it.tree import SyntaxTreeNode
-from mdit_py_plugins.amsmath import amsmath_plugin
 from mdit_py_plugins.deflist import deflist_plugin
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.footnote import footnote_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
-
-# from mdit_py_plugins.texmath import tex2svg
 from nicegui import __version__, core, ui
 
 # from .mermaid import Mermaid
@@ -102,6 +96,30 @@ window.MathJax = {
 """
 
 ui.add_body_html(xmathjax_js, shared=True)
+ui.add_head_html(smarthighlight_style, shared=True)
+
+MATHJAX_RETRY_SCRIPT = """
+(function retryTypeset(attempts) {
+    if (typeof attempts === 'undefined') {
+        attempts = 0;
+    }
+    if (typeof window.MathJax === 'undefined') {
+        console.error("MathJax is not loaded. Aborting further attempts.");
+        return;
+    }
+    var element = document.getElementById(__ELEMENT_ID__);
+    if (window.MathJax.typesetPromise && element && attempts < 50) {
+        MathJax.typesetPromise([element]).then(() => {
+        }).catch((error) => {
+            console.error("Error in typesetting:", error);
+        });
+    } else if (attempts < 50) {
+        setTimeout(() => retryTypeset(attempts + 1), 100);
+    } else {
+        console.error("MathJax typeset retry attempts exceeded.");
+    }
+})(0);
+"""
 
 
 class MyMarkdown(MarkdownIt):
@@ -256,7 +274,8 @@ class SmartMarkdown(
     _mathjax_initialized = False
     _css_initialized = False
 
-    """Markdown Element that renders advanced Markdown with code highlighting, mermaid, tables, etc."""
+    """NiceGUI Element that renders advanced Markdown with code highlighting,
+    mermaid, tables, etc."""
 
     def __init__(
         self, content: str = "", *, extras: list[str] = None, **kwargs
@@ -349,30 +368,32 @@ class SmartMarkdown(
         new_tokens = self.md.parse(self.content)
         new_ast = SyntaxTreeNode(new_tokens)
 
+        # Find first top-level node that has changed
+        for i, new_node in enumerate(new_ast.children):
+            if i >= len(self.top_level_nodes) or not self._nodes_equal(
+                new_node, self.top_level_nodes[i]
+            ):
+                break
+
+        # Remove old elements that are no longer needed (rarely happens)
+        for path in list(self.node_elements):
+            idx = int(path.split(".")[1])
+            if idx >= i:
+                element = self.node_elements.pop(path)
+                element.delete()
+
         # new_top_nodes = new_ast.children
         new_top_nodes = [n for n in new_ast.children if n.type != "footnote_block"]
 
-        prev_count = len(self.top_level_nodes)
-        new_count = len(new_top_nodes)
-
-        # Step 1: Re-render the last known top-level node (if it exists)
-        if prev_count > 0:
-            path_str = self._stringify_path([0, prev_count - 1])
-            last_node = new_top_nodes[prev_count - 1]  # Use the new node
-            # Testing
-            # last_node = self.top_level_nodes[-1]
-            self._render_node(last_node, path_str)
-
-        # Step 2: Render any new top-level nodes
-        for i in range(prev_count, new_count):
-            node = new_top_nodes[i]
-            path_str = self._stringify_path([0, i])
+        # Render all top-level nodes that have change or are new
+        for j, node in enumerate(new_top_nodes[i:]):
+            path_str = self._stringify_path([0, i + j])
             self._render_node(node, path_str)
 
-        # Step 3: Update tracker
+        # Update tracker
         self.top_level_nodes = new_top_nodes
 
-        # Step 4: Handle footnote_block if it exists
+        # Handle footnote_block if it exists
         for node in new_ast.children:
             if node.type == "footnote_block":
                 html = self.md.renderer.render(node.to_tokens(), self.md.options, {})
@@ -391,19 +412,29 @@ class SmartMarkdown(
         def _needs_mathjax(html: str) -> bool:
             return 'class="math' in html  # lightweight check
 
+        custom_blocks = ["fence"]
         # Check if there is an element for the node - if so, update it
         element = self.node_elements.get(path_str, None)
         if element:
-            if isinstance(element, ui.html):
+            if isinstance(element, ui.html) and node.type not in custom_blocks:
                 html = self.md.renderer.render(node.to_tokens(), self.md.options, {})
                 element.set_content(html)
                 if _needs_mathjax(html):
                     self._typeset_math(element.id)
-            elif isinstance(element, SmartCode):
+                self.node_elements[path_str] = element
+                return
+            elif isinstance(element, SmartCode) and node.type == "fence":
                 element.set_content(node.content, language=node.info)
+                self.node_elements[path_str] = element
+                return
             else:
-                raise ValueError(f"Unknown element type for node: {type(element)}")
-            return
+                # block type changed, delete it and create a new one
+                logger.debug(
+                    f"Deleting element {element.id} for node {node.type} "
+                    f"which used to be {type(element)}"
+                )
+                logger.debug(f"content was {element.content}, is now {node.content}")
+                element.delete()
 
         if node.type == "fence":
             with self:
@@ -416,6 +447,19 @@ class SmartMarkdown(
                     self._typeset_math(element.id)
         self.node_elements[path_str] = element
 
+    def _nodes_equal(self, node1: SyntaxTreeNode, node2: SyntaxTreeNode) -> bool:
+        """Check if two SyntaxTreeNodes are equal"""
+        if node1.type != node2.type:
+            return False
+        if node1.content != node2.content:
+            return False
+        if len(node1.children) != len(node2.children):
+            return False
+        return all(
+            self._nodes_equal(c1, c2)
+            for c1, c2 in zip(node1.children, node2.children, strict=True)
+        )
+
     def _stringify_path(self, path: list[int]) -> str:
         return ".".join(str(p) for p in path)
 
@@ -425,37 +469,8 @@ class SmartMarkdown(
             escaped_element_id = json.dumps(local_element_id)
 
             # JavaScript code to re-typeset math in the specific element
-            js_code = f"""
-            (function retryTypeset(attempts) {{
-                if (typeof attempts === 'undefined') {{
-                    attempts = 0;
-                }}
-
-                // Check if MathJax is loaded
-                if (typeof window.MathJax === 'undefined') {{
-                    console.error("MathJax is not loaded. Aborting further attempts.");
-                    return; // Exit if MathJax is not loaded
-                }} else {{
-                    //console.log("MathJax is loaded:", window.MathJax);
-                }}
-
-                var element = document.getElementById({escaped_element_id});
-                if (window.MathJax.typesetPromise && element && attempts < 50) {{
-                    //console.log("MathJax ready. Typesetting math in element:", element);
-                    MathJax.typesetPromise([element]).then(() => {{
-                        //console.log("Math typeset successfully in element.");
-                    }}).catch((error) => {{
-                        console.error("Error in typesetting:", error);
-                    }});
-                }} else if (attempts < 50) {{
-                    //console.log(`MathJax not ready or element ${escaped_element_id} not found, retrying...`);
-                    setTimeout(() => retryTypeset(attempts + 1), 100);
-                }} else {{
-                    console.error("MathJax typeset retry attempts exceeded.");
-                }}
-            }})(0);
-            """
-            ui.run_javascript(js_code)  # Execute the JavaScript code
+            js_code = MATHJAX_RETRY_SCRIPT.replace("__ELEMENT_ID__", escaped_element_id)
+            ui.run_javascript(js_code)
 
         with self:
             # Schedule the JavaScript call after the next render frame
@@ -491,7 +506,7 @@ class SmartCode(
         self.code = None  # Placeholder for the code element
         if not SmartCode._css_initialized:
             # ui.add_css(smarthighlight_style)
-            ui.add_head_html(smarthighlight_style)
+            # ui.add_head_html(smarthighlight_style)
             SmartCode._css_initialized = True
         super().__init__(content=content, **kwargs)
 
@@ -518,9 +533,13 @@ class SmartCode(
         # timer(0.5, self._update_copy_button)
 
         self.client.on_connect(
-            lambda: self.client.run_javascript(f"""
-            if (!navigator.clipboard) getHtmlElement({self.copy_button.id}).style.display = 'none';
-        """)
+            lambda: self.client.run_javascript(
+                textwrap.dedent(f"""
+                    if (!navigator.clipboard) {{
+                        getHtmlElement({self.copy_button.id}).style.display = 'none';
+                    }}
+                """)
+            )
         )
 
     async def show_checkmark(self) -> None:
@@ -533,10 +552,7 @@ class SmartCode(
         """Get the lexer for the specified language."""
         try:
             lexer = get_lexer_by_name(lang)
-        except Exception as e:
-            # logger.debug(
-            #     f"Failed to get lexer for {self.language}: {e}, defaulting 'text'"
-            # )
+        except Exception:
             lexer = get_lexer_by_name("text")
         self.language = lang
         self.lexer = lexer

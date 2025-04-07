@@ -56,14 +56,16 @@ def trace(logger, *, show_duration: bool = False):
                 start = time.perf_counter() if show_duration else None
 
                 logger.trace(
-                    f"[#{call_id}|{task_name}@{task_id}] Calling {func.__name__} (async) with args={args}, kwargs={kwargs}"
+                    f"[#{call_id}|{task_name}@{task_id}] Calling {func.__name__} "
+                    f"(async) with args={args}, kwargs={kwargs}"
                 )
                 result = await func(*args, **kwargs)
                 duration = (
                     f" in {time.perf_counter() - start:.3f}s" if show_duration else ""
                 )
                 logger.trace(
-                    f"[#{call_id}|{task_name}@{task_id}] {func.__name__} (async) returned: {result}{duration}"
+                    f"[#{call_id}|{task_name}@{task_id}] {func.__name__} (async) "
+                    f"returned: {result}{duration}"
                 )
                 return result
 
@@ -76,7 +78,8 @@ def trace(logger, *, show_duration: bool = False):
                 call_id = next(_async_call_counter)
                 start = time.perf_counter() if show_duration else None
                 logger.trace(
-                    f"[#{call_id}] Calling {func.__name__} (sync) with args={args}, kwargs={kwargs}"
+                    f"[#{call_id}] Calling {func.__name__} (sync) "
+                    f"with args={args}, kwargs={kwargs}"
                 )
                 result = func(*args, **kwargs)
                 duration = (
