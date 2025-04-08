@@ -5,13 +5,14 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from nicegui import app, events, ui
+from nicegui import app, ui
 
 from config import settings
 
 from .agent_manager import AutogenManager, ModelManager
+from .conversation import ConversationRecord
 from .history import HistoryContainer
-from .logging_config import LoggerConfigurator
+from .logging_config import LoggerConfigurator, trace
 from .smart_markdown import SmartMarkdown
 from .statusbar import StatusContainer
 from .styles import colors as c
@@ -82,13 +83,15 @@ class ChatTurn:
         self.agent = title  # The agent name
         self.response: str = ""
         self.container = container
+        self.markdown = None
 
         with self.container:
             if question and role == "user":
                 with ui.row().classes("mt-4 mb-1 justify-end"):
                     ui.label(f"{question}").classes(
-                        f"bg-{c.secondary} bg-opacity-50 dark:bg-{c.input_d} text-{c.input_d}"
-                        f"dark:text-{c.input_l} p-4 rounded-3xl text-body1"
+                        f"bg-{c.secondary} bg-opacity-50 dark:bg-{c.input_d} "
+                        f"text-{c.input_d} dark:text-{c.input_l} p-4 rounded-3xl "
+                        f"text-body1"
                     ).style("white-space: pre-wrap")
             with ui.element("div") as self.chat_response:
                 self.chat_response_label = ui.label("").classes("text-[8px]")
@@ -98,24 +101,28 @@ class ChatTurn:
             # this keeps the area invisible until we get content
             self.chat_response.visible = False
 
-        # force scroll to the bottom
-        ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
+            # force scroll to the bottom
+            ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
 
+    @trace(logger)
     async def append_chunk(self, chunk: str) -> None:
         """Append a chunk of text to the response"""
         self.response += chunk
-        self.chat_response_content.clear()
+        # self.chat_response_content.clear()
         if self.chat_response.visible is False:
             self.chat_response_label.text = f"{self.agent}"
             self.chat_response.visible = True
-        with self.chat_response_content:
-            # currently recreateting the element each time TODO should
-            # update on new tokens in the same chat vs. recreating
-            SmartMarkdown(self.response)
+        if self.markdown is None:
+            with self.chat_response_content:
+                self.markdown = SmartMarkdown(self.response)
+                # self.markdown = ui.markdown(self.response)
+        else:
+            self.markdown.append(chunk)
+            # self.markdown.set_content(self.response)
 
         # force scroll to the bottom
         # TODO: implement a debounce to not call this every chunk
-        ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
+        # ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
 
 
 class WebChatApp:
@@ -132,6 +139,7 @@ class WebChatApp:
         self.message_container: ui.element | None = None
         self.status_container: StatusContainer | None = None
         self.chatbox: ChatTurn | None = None
+        self.record: ConversationRecord | None = None
 
         self.ui_is_busy = False
 
@@ -159,6 +167,7 @@ class WebChatApp:
             ui.context.client.on_connect(lambda: connected())
             ui.context.client.on_disconnect(lambda: disconnected())
 
+            logger.trace("Setting initial agent and model")
             await self.set_agent_and_model(
                 agent=self.default_agent,
                 model=self._current_llm_model,
@@ -272,29 +281,59 @@ class WebChatApp:
                                 self, "ui_is_busy", backward=lambda x: not x
                             ) as input_area
                         ):
+                            from nicegui import background_tasks
 
-                            async def _enter(e: events.GenericEventArguments):
+                            @trace(logger)
+                            async def _enter(e):
+                                # ignore shift+enter
                                 if e.args["shiftKey"]:
                                     return
-                                else:
-                                    # this is a new question
-                                    question = input_area.value
-                                    input_area.set_value("")
-                                    await asyncio.sleep(0.1)  # Fix to give ui time
-                                    self.ui_is_busy = True
 
-                                    with self.message_container:
-                                        self._spinner = ui.spinner(color="secondary")
+                                if self.ui_is_busy:
+                                    return
+
+                                question = input_area.value
+                                input_area.set_value("")
+                                await asyncio.sleep(0.1)  # Fix to give ui time
+
+                                self.ui_is_busy = True
+                                await asyncio.sleep(0.1)  # Fix to give ui time
+
+                                # Show spinner
+                                with self.message_container:
+                                    self._spinner = ui.spinner(color="secondary")
+                                    await self.add_to_chat_message(
+                                        role="user", message=question
+                                    )
+
+                                # 2) Fire-and-forget background task to handle the UI
+                                @trace(logger)
+                                async def run_and_update_ui():
+                                    try:
+                                        await self.ask_question(question)
+                                        # 3) Once done, update UI from here
+                                        # await self.add_to_chat_message(
+                                        #     role="assistant", message=result
+                                        # )
+                                    except Exception as exc:
                                         await self.add_to_chat_message(
-                                            role="user", message=question
+                                            role="meta", message=str(exc)
                                         )
-                                    await self.ask_question(question)
-                                    # spinner may be gone if the session changed
-                                    if self._spinner.is_deleted is False:
-                                        self._spinner.delete()
-                                    self.ui_is_busy = False
-                                    await asyncio.sleep(0.1)  # give time to reenable
-                                    await input_area.run_method("focus")
+                                    finally:
+                                        if (
+                                            self._spinner
+                                            and not self._spinner.is_deleted
+                                        ):
+                                            self._spinner.delete()
+                                        self.ui_is_busy = False
+                                        await asyncio.sleep(0.1)
+                                        input_area.run_method("focus")
+
+                                background_tasks.create(run_and_update_ui())
+
+                                # 4) Return quickly so the event finishes
+                                logger.debug("Returning from _enter")
+                                await asyncio.sleep(0)  # just yields; done
 
                             input_area.on(
                                 "keypress.enter",
@@ -343,6 +382,7 @@ class WebChatApp:
         return self._current_agent
 
     @current_agent.setter
+    @trace(logger)
     def current_agent(self, agent: str) -> None:
         async def inner_task():
             async with self._task_lock:
@@ -369,6 +409,7 @@ class WebChatApp:
         return self._current_llm_model
 
     @current_llm_model.setter
+    @trace(logger)
     def current_llm_model(self, model: str) -> None:
         async def inner_task():
             async with self._task_lock:
@@ -410,6 +451,19 @@ class WebChatApp:
         self._initialize()
         # callbacks don't propagate exceptions, so this sends them to ui.notify
         app.on_exception(self.handle_exception)
+
+        # Don't run this in prod
+        def async_debug():
+            loop = asyncio.get_running_loop()
+            loop.set_debug(True)
+            loop.slow_callback_duration = 0.05
+
+        # app.on_startup(async_debug)
+
+        # set reconnect_timeout if not in kwargs (default is 3 seconds)
+        if "reconnect_timeout" not in kwargs:
+            kwargs["reconnect_timeout"] = 15
+
         logger.info(f"Starting MChat at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         ui.run(**kwargs)
 
@@ -417,6 +471,7 @@ class WebChatApp:
         """Callback for new tokens from the autogen manager"""
         # if an agent is set, note it in the message
         agent_name = kwargs.get("agent", None)
+        # logger.debug(f"New token: {token}, agent: {agent_name}, kwargs: {kwargs}")
 
         # if the token is empty, don't post it
         if not token:
@@ -428,6 +483,8 @@ class WebChatApp:
         # if this is marked as a complete message, end the turn
         if "complete" in kwargs and kwargs["complete"]:
             await self.end_chat_turn(role="assistant", agent_name=agent_name)
+
+        # logger.debug("done with on_llm_new_token")
 
     def _initialize(self):
         # # Get an object to manage the AI models
@@ -514,6 +571,7 @@ class WebChatApp:
 
         # user indicates a new message, assistant indicates a response
         # meta is neither and does not go in the session history
+        # logger.debug(f"in end_chat_turn: {role}, agent_name: {agent_name}")
         assert role in ["user", "assistant", "meta"]
 
         if self.chatbox is None:
@@ -551,6 +609,7 @@ class WebChatApp:
 
         # if we have a chatbox, end it
         self.chatbox = None
+        # logger.debug("done with end_chat_turn")
 
     async def ask_question(self, question: str):
         """Processes the user's question and dispatches commands."""
@@ -597,6 +656,7 @@ class WebChatApp:
                 message=f"Error running autogen: {e}",
                 agent_name="meta",
             )
+        # logger.debug(f"About to call end_chat_turn: {self.record}")
         await self.end_chat_turn(role="assistant")
 
     async def handle_help(self):
@@ -656,6 +716,7 @@ class WebChatApp:
         )
         await self.end_chat_turn(role="meta")
 
+    @trace(logger)
     async def handle_set_agent(self, agent_name: str):
         """Sets the current agent."""
         agent_name = agent_name.strip()
@@ -702,6 +763,7 @@ class WebChatApp:
         self.current_question = ""
         await self.end_chat_turn(role="meta")
 
+    @trace(logger)
     async def handle_set_model(self, model_name: str):
         """Sets the current model."""
         model_name = model_name.strip()
@@ -781,6 +843,7 @@ class WebChatApp:
         )
         await self.end_chat_turn(role="meta")
 
+    @trace(logger)
     async def load_record(self, record):
         """Load a record into the chat, called from the history container"""
         self.record = record
@@ -838,6 +901,7 @@ class WebChatApp:
         await self.end_chat_turn(role="assistant")
         self.ui_is_busy = False
 
+    @trace(logger)
     async def set_agent_and_model(
         self,
         agent: str | None = None,
