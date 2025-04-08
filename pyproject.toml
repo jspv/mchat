@@ -30,7 +30,6 @@ dependencies = [
     "rich>=13.9.4",
     "sentence-transformers>=4.0.1",
     "tzlocal>=5.2",
-    "unstructured[csv,docx,epub,image,md,pdf,pptx,xlsx]>=0.17.2",
 ]
 
 [dependency-groups]
