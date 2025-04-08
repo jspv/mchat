@@ -327,6 +327,7 @@ class WebChatApp:
                                             self._spinner.delete()
                                         self.ui_is_busy = False
                                         await asyncio.sleep(0.1)
+                                        input_area.run_method("focus")
 
                                 background_tasks.create(run_and_update_ui())
 
