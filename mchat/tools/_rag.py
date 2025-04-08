@@ -22,7 +22,7 @@ class Rag(BaseTool):
         query: Annotated[str, "Search query"],
         num_results: Annotated[
             int, "Number of results to fetch", "Default(value=5)"
-        ] = 5,
+        ] = 10,
     ) -> Annotated[list[dict], "A list of results from the search query"]:
         """
         Search the pokemon card game rules using the provided query.
@@ -51,7 +51,7 @@ class Rag(BaseTool):
         formatted_results = [
             {
                 "content": doc,
-                "source": f"Document {results['metadatas'][0][i]['filename']}",
+                "source": f"Document {results['metadatas'][0][i]['source']}",
             }
             for i, doc in enumerate(documents)
         ]
