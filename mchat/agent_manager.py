@@ -1,7 +1,9 @@
+import asyncio
 import importlib
 import json
 import logging
 import os
+import random
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from functools import reduce
 from typing import (
@@ -48,6 +50,10 @@ from autogen_core.models import (
 )
 from autogen_core.tools import FunctionTool
 from autogen_ext.agents.web_surfer import MultimodalWebSurfer
+from autogen_ext.models.openai._openai_client import (
+    AzureOpenAIChatCompletionClient,
+    OpenAIChatCompletionClient,
+)
 
 from .logging_config import trace  # noqa: F401
 from .model_manager import ModelManager
@@ -800,25 +806,36 @@ class AutogenManager:
 
 class LLMTools:
     llmtools_mm = ModelManager()
-    llmtools_summary_model = llmtools_mm.open_model(llmtools_mm.default_memory_model)
+    llmtools_summary_model: (
+        AzureOpenAIChatCompletionClient | OpenAIChatCompletionClient
+    ) = llmtools_mm.open_model(llmtools_mm.default_memory_model)
 
     def __init__(self):
         """Builds the intent prompt template"""
+        pass
 
     @staticmethod
     async def aget_summary_label(conversation: str) -> str:
         """Returns the a very short summary of a conversation suitable for a label"""
         system_message = label_prompt.format(conversation=conversation)
-        out = await LLMTools.llmtools_summary_model.create(
-            [SystemMessage(content=system_message)]
-        )
+        try:
+            out = await LLMTools.llmtools_summary_model.create(
+                [SystemMessage(content=system_message)]
+            )
+        except Exception as e:
+            logger.error(f"Error getting summary label: {type(e)}:{e}")
+            raise
         return out.content
 
     @staticmethod
     async def get_conversation_summary(conversation: str) -> str:
         """Returns the summary of a conversation"""
         system_message = summary_prompt.format(conversation=conversation)
-        out = await LLMTools.llmtools_summary_model.create(
-            [SystemMessage(content=system_message)]
-        )
+        try:
+            out = await LLMTools.llmtools_summary_model.create(
+                [SystemMessage(content=system_message)]
+            )
+        except Exception as e:
+            logger.error(f"Error getting conversation summary: {type(e)}:{e}")
+            raise
         return out.content

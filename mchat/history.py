@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -5,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import apsw
 from apsw.bestpractice import apply as apply_best_practice
 from apsw.bestpractice import recommended as recommended_practice
-from nicegui import ui
+from nicegui import background_tasks, ui
 
 from .agent_manager import LLMTools
 from .conversation import ConversationRecord
@@ -96,6 +97,7 @@ class HistorySessionBox:
         self.new_label = new_label
         self.label = label
         self.record = record
+        self.id = record.id
         self._active = False
 
         session_box_label = (
@@ -354,13 +356,26 @@ class HistoryContainer:
         conversation = [
             {"user": turn.prompt, "ai": turn.responses} for turn in record.turns[-10:]
         ]
-        try:
-            record.summary = await LLMTools.aget_summary_label(conversation)
-        except Exception as e:
-            logger.error(f"Error updating conversation summary: {e}")
 
-        self.active_session.update_box(record)
-        self.db_manager.write_conversation(record)
+        async def get_summary():
+            try:
+                summary = await LLMTools.aget_summary_label(conversation)
+            except Exception as e:
+                logger.error(f"Error generating conversation summary: {type(e)}:{e}")
+                return
+            else:
+                record.summary = summary
+                # update the correct session
+                for session in self.sessions:
+                    if session.record.id == record.id:
+                        session.update_box(record)
+                        self.db_manager.write_conversation(record)
+                else:
+                    logger.debug(
+                        f"Session with ID {record.id} not found in sessions. Deleted?"
+                    )
+
+        background_tasks.create(get_summary())
 
     async def new_session(self) -> None:
         """Add a new empty session to the HistoryContainer and set it as active."""
