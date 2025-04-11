@@ -361,19 +361,22 @@ class HistoryContainer:
             try:
                 summary = await LLMTools.aget_summary_label(conversation)
             except Exception as e:
-                logger.error(f"Error generating conversation summary: {type(e)}:{e}")
+                logger.error(
+                    f"Error generating conversation summary: {type(e).__name__}: {e}"
+                )
                 return
+
+            record.summary = summary
+
+            for session in self.sessions:
+                if session.record.id == record.id:
+                    session.update_box(record)
+                    self.db_manager.write_conversation(record)
+                    break
             else:
-                record.summary = summary
-                # update the correct session
-                for session in self.sessions:
-                    if session.record.id == record.id:
-                        session.update_box(record)
-                        self.db_manager.write_conversation(record)
-                else:
-                    logger.debug(
-                        f"Session with ID {record.id} not found in sessions. Deleted?"
-                    )
+                logger.debug(
+                    f"Session with ID {record.id} not found in sessions. Deleted?"
+                )
 
         background_tasks.create(get_summary())
 
