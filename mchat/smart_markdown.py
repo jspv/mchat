@@ -282,7 +282,7 @@ class SmartMarkdown(
     ) -> None:
         if extras is None:
             extras = []
-        self.content = ""
+        self.content = content
         self.extras = extras[:]
         self.top_level_nodes: list[SyntaxTreeNode] = []
         self.node_elements: dict[SyntaxTreeNode, Element] = {}
@@ -309,58 +309,15 @@ class SmartMarkdown(
 
         # Render initial content
         self.append(content)
-        # self._handle_content_change(self.content)
-
-    def _retired_handle_content_change(self, content: str) -> None:
-        """Parse and render the Markdown content into NiceGUI elements."""
-        tokens = self.md.parse(content)
-        node_tree = SyntaxTreeNode(tokens)
-
-        # Clear any existing elements before re-rendering
-        self.clear()
-
-        # Collect elements to render in a list
-        render_map = []
-        for node in node_tree.children:
-            if node.type == "fence":
-                # Check for mermaid code blocks
-                if node.info.startswith("mermaid"):
-                    render_map.append((node, "mermaid"))
-                else:
-                    render_map.append((node, "code_block"))
-            elif node.type == "table":
-                render_map.append((node, "table"))
-            else:
-                # Default: Render as HTML using markdown-it's renderer
-                html_content = self.md.renderer.render(
-                    node.to_tokens(), self.md.options, {}
-                )
-                render_map.append((html_content, "html"))
-
-        # Render the collected items into the NiceGUI UI
-        with self:
-            for element, element_type in render_map:
-                if element_type == "html":
-                    ui.html(element).classes("list-decimal")
-                elif element_type == "code_block":
-                    # Add your custom code element or NiceGUI code element
-                    ui.code(element.content, language=element.info)
-                elif element_type == "mermaid":
-                    ui.mermaid(element.content)
-                elif element_type == "table":
-                    table_html = self.md.renderer.render(
-                        element.to_tokens(), self.md.options, {}
-                    )
-                    dimensions = html_table_to_table_dict(table_html)
-                    with ui.element("div").classes("w-min"):
-                        ui.table(**dimensions).classes("m-2 table-auto").props("")
-                else:
-                    logger.debug(f"Unknown element type: {element_type}")
 
     def replace(self, content: str) -> None:
         """Replace the current content and re-render."""
         self.content = content
-        self._handle_content_change(self.content)
+        # clear all children
+        for path in list(self.node_elements):
+            element = self.node_elements.pop(path)
+            element.delete()
+        self.append(self.content)
 
     @trace(logger)
     def append(self, new_content: str) -> None:
@@ -375,10 +332,10 @@ class SmartMarkdown(
             ):
                 break
 
-        # Remove old elements that are no longer needed (rarely happens)
+        # previously rendered nodes that are no longer in the new content (rare case)
         for path in list(self.node_elements):
             idx = int(path.split(".")[1])
-            if idx >= i:
+            if idx > i:
                 element = self.node_elements.pop(path)
                 element.delete()
 
@@ -421,11 +378,17 @@ class SmartMarkdown(
                 element.set_content(html)
                 if _needs_mathjax(html):
                     self._typeset_math(element.id)
-                self.node_elements[path_str] = element
+                # self.node_elements[path_str] = element
                 return
             elif isinstance(element, SmartCode) and node.type == "fence":
-                element.set_content(node.content, language=node.info)
-                self.node_elements[path_str] = element
+                # if type is mermaid, replace with a mermaid element
+                if node.info == "mermaid":
+                    element.delete()
+                    with self:
+                        element = ui.mermaid(node.content).classes("my-2")
+                        self.node_elements[path_str] = element
+                else:
+                    element.set_content(node.content, language=node.info)
                 return
             else:
                 # block type changed, delete it and create a new one
@@ -436,15 +399,19 @@ class SmartMarkdown(
                 logger.debug(f"content was {element.content}, is now {node.content}")
                 element.delete()
 
-        if node.type == "fence":
+        if node.type == "fence" and node.info != "mermaid":
             with self:
                 element = SmartCode(node.content, language=node.info).classes("my-2")
+        elif node.type == "fence" and node.info == "mermaid":
+            with self:
+                element = ui.mermaid(node.content).classes("my-2")
         else:
             with self:
                 html = self.md.renderer.render(node.to_tokens(), self.md.options, {})
                 element = ui.html(html).classes("w-full my-2")
                 if _needs_mathjax(html):
                     self._typeset_math(element.id)
+
         self.node_elements[path_str] = element
 
     def _nodes_equal(self, node1: SyntaxTreeNode, node2: SyntaxTreeNode) -> bool:
