@@ -46,22 +46,75 @@ api_key = "@format {this.openai_api_key}"
 model = "gpt-4o-mini"
 api_type = "open_ai"
 base_url = "https://api.openai.com/v1"
+_image_input_support = true
+_cost_input = 0.15
+_cost_output = 0.6
+_max_context = 128000
+_max_output = 16384
+
+[models.chat.gpt-4_1-mini]
+api_key = "@format {this.openai_api_key}"
+model = "gpt-4.1-mini"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_image_input_support = true
+_cost_input = 0.4
+_cost_output = 1.6
+_max_context = 1047576
+_max_output = 32768
 
 [models.chat.gpt-4o]
 api_key = "@format {this.openai_api_key}"
 model = "gpt-4o"
 api_type = "open_ai"
 base_url = "https://api.openai.com/v1"
+_image_input_support = true
+_cost_input = 2.50
+_cost_output = 10.00
+_max_context = 128000
+_max_output = 16384
 
-[models.chat.o1-preview]
+[models.chat.gpt-4_1]
 api_key = "@format {this.openai_api_key}"
-model = "o1-preview"
+model = "gpt-4.1"
 api_type = "open_ai"
 base_url = "https://api.openai.com/v1"
+_image_input_support = true
+_cost_input = 2.00
+_cost_output = 8.00
+_max_context = 1047576
+_max_output = 32768
+
+[models.chat.o1]
+api_key = "@format {this.openai_api_key}"
+model = "o1"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_image_input_support = true
 _streaming_support = true
-_system_prompt_support = false
-_tool_support = false
+_system_prompt_support = true
+_tool_support = true
 _temperature_support = false
+_cost_input = 15.00
+_cost_output = 60.00
+_max_context = 200000
+_max_output = 100000
+
+
+[models.chat.o3]
+api_key = "@format {this.openai_api_key}"
+model = "o3"
+api_type = "open_ai"
+base_url = "https://api.openai.com/v1"
+_image_input_support = true
+_streaming_support = true
+_system_prompt_support = true
+_tool_support = true
+_temperature_support = false
+_cost_input = 10.00
+_cost_output = 40.00
+_max_context = 200000
+_max_output = 100000
 
 [models.chat.anthropic-claude-3_5-haiku]
 api_key = "@format {this.openrouter_api_key}"
@@ -134,6 +187,13 @@ embedding_model = "text-embedding-ada-002"
 memory_model = "gpt-4o-mini"
 memory_model_temperature = 0.1
 memory_model_max_tokens = 2048
+
+# For RAG
+rag_llm_api_key = "@format {this.openai_api_key}"
+rag_llm_model = "gpt-4o-mini"
+rag_topdir = "docs"
+docling_artifacts_path = ".docling_artifacts"
+
 
 #
 # either here or in .secrets.toml

@@ -41,7 +41,9 @@ class ModelConfigChatOpenAI(ModelConfig):
     _system_prompt_support: bool | None = True
     _temperature_support: bool | None = None
     _structured_output_support: bool | None = None
-    _max_tokens: int | None = None
+    _image_input_support: bool | None = False
+    _reasoning_support: bool | None = False
+    _max_output: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
     _cost_output: float | None = None
@@ -62,7 +64,9 @@ class ModelConfigChatAzure(ModelConfig):
     _system_prompt_support: bool | None = True
     _temperature_support: bool | None = True
     _structured_output_support: bool | None = None
-    _max_tokens: int | None = None
+    _image_input_support: bool | None = False
+    _reasoning_support: bool | None = False
+    _max_ouput: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
     _cost_output: float | None = None
@@ -76,8 +80,11 @@ class ModelConfigImageOpenAI(ModelConfig):
     num_images: int
     model_type: Literal["image"]
     api_type: Literal["open_ai"]
+    _cost_input: float | None = None
     _cost_output: float | None = None
     _temperature_support: bool | None = None
+    _image_edit_support: bool | None = False
+    _inpainting_support: bool | None = False
     _streaming_support: bool | None = False
     _tool_support: bool | None = False
     _system_prompt_support: bool | None = False
@@ -94,8 +101,11 @@ class ModelConfigImageAzure(ModelConfig):
     num_images: int
     model_type: Literal["image"]
     api_type: Literal["azure"]
+    _cost_input: float | None = None
     _cost_ouput: float | None = None
     _temperature_support: bool | None = None
+    _image_edit_support: bool | None = False
+    _inpainting_support: bool | None = False
     _streaming_support: bool | None = False
     _tool_support: bool | None = False
     _system_prompt_support: bool | None = False
