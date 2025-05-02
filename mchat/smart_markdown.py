@@ -282,7 +282,7 @@ class SmartMarkdown(
     ) -> None:
         if extras is None:
             extras = []
-        self.content = content
+        self.content = ""  # content will be added by append()
         self.extras = extras[:]
         self.top_level_nodes: list[SyntaxTreeNode] = []
         self.node_elements: dict[SyntaxTreeNode, Element] = {}
@@ -312,11 +312,13 @@ class SmartMarkdown(
 
     def replace(self, content: str) -> None:
         """Replace the current content and re-render."""
-        self.content = content
+        self.content = ""
         # clear all children
         for path in list(self.node_elements):
             element = self.node_elements.pop(path)
             element.delete()
+        self.top_level_nodes = []
+        self.footnotes_element = None
         self.append(self.content)
 
     @trace(logger)
