@@ -177,7 +177,7 @@ azure_deployment = "text-embedding-ada-002"
 [defaults]
 
 # chat_model = "azure_openai_gpt_4o"
-chat_model = "gpt-4o"
+chat_model = "gpt-4_1"
 chat_temperature = 0.7
 agent = "default_with_tools"
 image_model = "dall-e-3"

@@ -188,7 +188,7 @@ research_team:
   oneshot: false
   max_rounds: 30
   agents: [st_research_assistant, st_verifier, st_summary_agent]
-  team_model: gpt-4o
+  team_model: gpt-4.1
 
 st_research_assistant:
   type: agent
