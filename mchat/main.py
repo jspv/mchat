@@ -40,6 +40,7 @@ def setup_logging(verbosity: int) -> LoggerConfigurator:
     # customize the log levels for specific modules
     log_config.add_console_filter("mchat", mchat_console_level)
     log_config.add_file_filter("mchat", logging.DEBUG)
+    log_config.add_file_filter("requests.packages.urllib3", logging.DEBUG)
     log_config.add_console_and_file_filters(__name__, logging.DEBUG)
     log_config.add_console_and_file_filters("watchfiles", logging.WARNING)
     log_config.add_console_and_file_filters("mchat.mchatweb", logging.DEBUG)
