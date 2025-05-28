@@ -66,7 +66,7 @@ class ModelConfigChatAzure(ModelConfig):
     _structured_output_support: bool | None = None
     _image_input_support: bool | None = False
     _reasoning_support: bool | None = False
-    _max_ouput: int | None = None
+    _max_output: int | None = None
     _max_context: int | None = None
     _cost_input: float | None = None
     _cost_output: float | None = None
