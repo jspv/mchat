@@ -193,6 +193,7 @@ rag_llm_api_key = "@format {this.openai_api_key}"
 rag_llm_model = "gpt-4o-mini"
 rag_topdir = "docs"
 docling_artifacts_path = ".docling_artifacts"
+rag_corpora_path = "corpora"
 
 
 #

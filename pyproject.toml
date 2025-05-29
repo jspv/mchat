@@ -15,6 +15,7 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "chromadb>=0.6.3",
     "click>=8.1.7",
+    "cognee>=0.1.40",
     "dynaconf>=3.2.6",
     "fredapi>=0.5.2",
     "latex2mathml>=3.77.0",
