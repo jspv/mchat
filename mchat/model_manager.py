@@ -234,6 +234,7 @@ class ModelManager:
                 ](model_id=model_id, model_type=model_type, **model_config)
 
         self.azure_token_provider = None
+        # set the token provider if there is at least one azure model
         for azure_model in self.filter_models({"api_type": ["azure"]}):
             if self.config[azure_model].api_key == "provider":
                 self.azure_token_provider = AzureADTokenProvider()

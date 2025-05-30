@@ -174,3 +174,4 @@ debug.log*
 
 .nicegui
 uv.lock
+mchat/tools/*.json

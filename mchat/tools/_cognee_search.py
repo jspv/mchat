@@ -1,3 +1,4 @@
+import json
 import logging
 import sys
 from pathlib import Path
@@ -21,15 +22,6 @@ logger = logging.getLogger(__name__)
 for handler in logging.getLogger().handlers:
     if isinstance(handler, logging.StreamHandler):
         handler.terminator = "\n"
-
-# If using a factory, list the name, description, and corpus for the tool.
-tools = [
-    (
-        "name",
-        "description",
-        "corpus",
-    )
-]
 
 
 class CogneeSearchTool(BaseTool):
@@ -61,9 +53,9 @@ class CogneeSearchTool(BaseTool):
             query_type (str): Type of search to perform (SUMMARIES, INSIGHTS, CHUNKS).
             top_k (int): Number of top results to return.
         """
-        import litellm
+        # import litellm
 
-        litellm._turn_on_debug()
+        # litellm._turn_on_debug()
 
         logger.debug(
             f"received args: query_text={query_text}, query_type={query_type}, top_k={top_k}"
@@ -76,6 +68,11 @@ class CogneeSearchTool(BaseTool):
         }
 
         query_type = query_type_map.get(query_type)
+
+        # set parameters on each search as cognee.config is a global namespace
+        api_key = self.api_key() if callable(self.api_key) else self.api_key
+        cognee.config.set_llm_api_key(api_key)
+        cognee.config.system_root_directory(self.corpus_path)
 
         # Placeholder for actual search logic
         results = await cognee.search(
@@ -93,21 +90,22 @@ class CogneeSearchTool(BaseTool):
 
         # Check to see if corpus is a valid absolute path, if not, check
         # the copora path in the settings
-        corpus_path = Path(corpus)
-        if not corpus_path.is_absolute():
-            corpus_path = Path(settings.defaults.rag_corpora_path) / corpus
-        corpus_path = corpus_path.resolve()
-        if not corpus_path.exists():
-            raise ValueError(f"Corpus path {corpus_path} does not exist.")
+        self.corpus_path = Path(corpus)
+        if not self.corpus_path.is_absolute():
+            self.corpus_path = Path(settings.defaults.rag_corpora_path) / corpus
+        self.corpus_path = self.corpus_path.resolve()
+        if not self.corpus_path.exists():
+            raise ValueError(f"Corpus path {self.corpus_path} does not exist.")
 
-        if not corpus_path.exists():
-            raise ValueError(f"Corpus path {corpus_path} does not exist.")
+        if not self.corpus_path.exists():
+            raise ValueError(f"Corpus path {self.corpus_path} does not exist.")
 
         mm = ModelManager()
         rag_model = settings.defaults.rag_llm_model
         api_key = mm.config[rag_model].api_key
-        cognee.config.set_llm_api_key(api_key)
-        cognee.config.system_root_directory(corpus_path)
+        # store if we are using an Azure token provider, since cognee.config is a
+        # global namespace, we need to be able to check this later
+        self.api_key = mm.azure_token_provider if api_key == "provider" else api_key
 
 
 class CogneeSearchToolFactory:
@@ -131,3 +129,24 @@ class CogneeSearchToolFactory:
 
 USE_FACTORY = True
 FACTORY = CogneeSearchToolFactory
+
+if USE_FACTORY:
+    try:
+        current_file = Path(__file__)
+        tools_json_path = current_file.with_name(f"{current_file.stem}_tools.json")
+        with tools_json_path.open("r", encoding="utf-8") as f:
+            tools = json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load tool list from {tools_json_path}: {e}")
+        tools = []
+
+# The json file should contain a list of lists with the following structure:
+
+# [
+#     [
+#         "name",
+#         "description",
+#         "corpus",
+#     ],
+#    ...
+# ]

@@ -450,11 +450,14 @@ class AutogenManager:
             ):
                 tools = None
             else:
-                tools = [
-                    self.tools[tool]
-                    for tool in agent_data["tools"]
-                    if tool in self.tools
-                ]
+                tools = []
+                for tool_name in agent_data["tools"]:
+                    if tool_name in self.tools:
+                        tools.append(self.tools[tool_name])
+                    else:
+                        logger.error(
+                            f"Requested tool '{tool_name}' not found in known tools."
+                        )
 
             # Build the model_context
             model_context = UnboundedChatCompletionContext()
@@ -607,10 +610,15 @@ class AutogenManager:
                 ):
                     tools = None
                 else:
-                    # load the tools
                     tools = []
-                    for tool in subagent_data["tools"]:
-                        tools.append(self.tools[tool])
+                    for tool_name in agent_data["tools"]:
+                        if tool_name in self.tools:
+                            tools.append(self.tools[tool_name])
+                        else:
+                            logger.error(
+                                f"Requested tool '{tool_name}' not found in known "
+                                "tools."
+                            )
 
                 agents.append(
                     AssistantAgent(
