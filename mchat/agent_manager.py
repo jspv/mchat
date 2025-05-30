@@ -181,8 +181,42 @@ class AutogenManager:
                 module = importlib.util.module_from_spec(spec)
                 try:
                     spec.loader.exec_module(module)
+                except Exception as e:
+                    logger.warning(f"Failed to load tool module {filename[:-3]}: {e}")
 
-                    # Assuming all tool classes are derived from BaseTool
+                use_factory = getattr(module, "USE_FACTORY", False)
+
+                if use_factory:
+                    factory = getattr(module, "FACTORY", None)
+                    if factory and hasattr(factory, "create_tool"):
+                        for toolargs in getattr(module, "tools", []):
+                            try:
+                                tool_instance = factory.create_tool(*toolargs)
+                                if tool_instance.is_callable:
+                                    self.tools[tool_instance.name] = FunctionTool(
+                                        tool_instance.run,
+                                        description=tool_instance.description,
+                                        name=tool_instance.name,
+                                    )
+                                    logger.debug(
+                                        f"Loaded factory tool: {tool_instance.name}"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"Tool {tool_instance.name} not loaded: "
+                                        "is_callable is False"
+                                    )
+                            except Exception as e:
+                                logger.warning(
+                                    "Failed to initialize factory tool "
+                                    f"{toolargs[0]}: {e}"
+                                )
+                    else:
+                        logger.warning(
+                            "USE_FACTORY is True but FACTORY is missing or invalid "
+                            f"in {module}"
+                        )
+                else:
                     for item_name in dir(module):
                         item = getattr(module, item_name)
                         if (
@@ -190,20 +224,24 @@ class AutogenManager:
                             and issubclass(item, BaseTool)
                             and item is not BaseTool
                         ):
-                            tool_instance = item()  # Instantiate the tool
-                            if tool_instance.is_callable:
-                                self.tools[tool_instance.name] = FunctionTool(
-                                    tool_instance.run,
-                                    description=tool_instance.description,
-                                    name=tool_instance.name,
-                                )
-                            else:
+                            try:
+                                tool_instance = item()
+                                if tool_instance.is_callable:
+                                    self.tools[tool_instance.name] = FunctionTool(
+                                        tool_instance.run,
+                                        description=tool_instance.description,
+                                        name=tool_instance.name,
+                                    )
+                                    logger.debug(f"Loaded tool: {tool_instance.name}")
+                                else:
+                                    logger.warning(
+                                        f"Tool {tool_instance.name} not loaded: "
+                                        "is_callable is False"
+                                    )
+                            except Exception as e:
                                 logger.warning(
-                                    f"Tool {tool_instance.name} not loaded due to "
-                                    f"setup failure: {tool_instance.load_error}"
+                                    f"Failed to instantiate tool {item.__name__}: {e}"
                                 )
-                except Exception as e:
-                    logger.warning(f"Failed to load tool module {filename[:-3]}: {e}")
 
     def new_agent(
         self, agent_name, model_name, prompt, tools: list | None = None

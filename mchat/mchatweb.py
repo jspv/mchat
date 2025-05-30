@@ -294,7 +294,7 @@ class WebChatApp:
 
                                 question = input_area.value
                                 input_area.set_value("")
-                                await asyncio.sleep(0.1)  # Fix to give ui time
+                                await asyncio.sleep(0.2)  # Fix to give ui time
 
                                 self.ui_is_busy = True
                                 await asyncio.sleep(0.1)  # Fix to give ui time
